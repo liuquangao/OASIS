@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hydromind Flood Risk Assessment System</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body>
+    <div id="demo-map"></div>
+
+    <header class="demo-header">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">◈</div>
+        <div>
+          <h1>Hydromind Flood Risk Assessment System</h1>
+          <p>AI-Powered Spatial Intelligence</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span class="demo-pill">Demo Mode</span>
+        <button id="fullscreen-btn" class="ghost-button" type="button">Fullscreen</button>
+      </div>
+    </header>
+
+    <aside class="action-bar" aria-label="Executive actions">
+      <button class="action-button active" id="risk-overlay-btn" type="button">
+        <span>Map</span>
+        <strong>Risk Overlay</strong>
+      </button>
+      <button class="action-button" id="risk-report-btn" type="button">
+        <span>Report</span>
+        <strong>Risk Report</strong>
+      </button>
+      <button class="action-button" id="exposure-btn" type="button">
+        <span>Stats</span>
+        <strong>Exposure Summary</strong>
+      </button>
+      <button class="action-button" id="mitigation-btn" type="button">
+        <span>Plan</span>
+        <strong>Mitigation Plan</strong>
+      </button>
+    </aside>
+
+    <section class="agent-panel" aria-label="Hydromind risk agent">
+      <header class="agent-header">
+        <div>
+          <h2>Hydromind Risk Agent</h2>
+          <p>Decision support copilot</p>
+        </div>
+        <span class="agent-status">Online</span>
+      </header>
+
+      <div id="agent-history" class="agent-history">
+        <article class="message agent">
+          <span>Agent</span>
+          <p>I have loaded the Glasgow flood intelligence workspace and identified priority exposure zones along the River Clyde corridor.</p>
+        </article>
+        <article class="message user">
+          <span>Decision Lead</span>
+          <p>Show the likely exposed buildings around the central flood extent.</p>
+        </article>
+        <article class="message agent">
+          <span>Agent</span>
+          <p>Current overlay indicates 142 potentially affected buildings, 3.2 km of road exposure, and elevated risk around low-lying commercial blocks near the Clyde.</p>
+        </article>
+      </div>
+
+      <div class="prompt-row">
+        <button class="prompt-chip" type="button" data-prompt="Generate Flood Report">Generate Flood Report</button>
+        <button class="prompt-chip" type="button" data-prompt="Show Affected Buildings">Show Affected Buildings</button>
+        <button class="prompt-chip" type="button" data-prompt="Recommend Mitigation Plan">Mitigation Plan</button>
+      </div>
+
+      <form id="agent-form" class="agent-form">
+        <input
+          id="agent-input"
+          type="text"
+          autocomplete="off"
+          placeholder="Ask Hydromind about flood exposure..."
+        />
+        <button type="submit">Send</button>
+      </form>
+    </section>
+
+    <aside id="legend-card" class="legend-card visible" aria-label="Risk overlay legend">
+      <h3>Risk Overlay</h3>
+      <div class="legend-row"><span class="risk high"></span>High inundation likelihood</div>
+      <div class="legend-row"><span class="risk medium"></span>Moderate exposure zone</div>
+      <div class="legend-row"><span class="risk low"></span>Monitoring buffer</div>
+    </aside>
+
+    <section id="report-drawer" class="report-drawer" aria-label="Executive flood risk report">
+      <div class="drawer-backdrop" id="drawer-backdrop"></div>
+      <article class="drawer-panel">
+        <header class="drawer-header">
+          <div>
+            <p class="eyebrow">Executive Summary</p>
+            <h2>Flood Risk Executive Summary</h2>
+          </div>
+          <button id="close-report" type="button">Close</button>
+        </header>
+
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <span>Affected Buildings</span>
+            <strong>142</strong>
+            <small>central exposure corridor</small>
+          </div>
+          <div class="kpi-card">
+            <span>Affected Roads</span>
+            <strong>3.2 km</strong>
+            <small>local access disruption</small>
+          </div>
+          <div class="kpi-card">
+            <span>Economic Risk</span>
+            <strong>£4.2M</strong>
+            <small>screening estimate</small>
+          </div>
+        </div>
+
+        <section class="risk-band">
+          <div class="risk-band-header">
+            <span>Overall Risk Level</span>
+            <strong>High</strong>
+          </div>
+          <div class="risk-track">
+            <span class="risk-fill"></span>
+          </div>
+        </section>
+
+        <section class="report-section">
+          <h3>Priority Findings</h3>
+          <ul>
+            <li>Concentrated exposure is detected along low-lying blocks adjacent to the Clyde corridor.</li>
+            <li>Critical access roads show short segment exposure that may affect emergency routing.</li>
+            <li>Population vulnerability should be reviewed against SIMD and census data zone indicators.</li>
+          </ul>
+        </section>
+
+        <section class="report-section decision-card">
+          <h3>Recommended Decision</h3>
+          <p>Activate detailed asset validation, prepare temporary access diversion plans, and prioritize drainage inspection in the highlighted risk zone.</p>
+        </section>
+      </article>
+    </section>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="./demo.js"></script>
+  </body>
+</html>
