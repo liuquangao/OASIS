@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Glasgow terrain, SEPA flood likelihood, rainfall gauges, and river-level monitoring stations." />
+    <title>Glasgow Terrain, Flood Likelihood &amp; Monitoring</title>
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="./terrain-monitoring.css?v=20260810-flood-2" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" aria-label="Map information and controls">
+        <header class="site-header">
+          <div class="eyebrow">OASIS · Glasgow observation view</div>
+          <h1>Terrain, flood risk<br />&amp; monitoring</h1>
+          <p class="lede">Compare Glasgow's 10 km elevation coverage with SEPA long-term flood likelihood and nearby monitoring stations.</p>
+        </header>
+
+        <section class="safety-note" aria-label="Interpretation warning">
+          <strong>Context, not a live warning</strong>
+          <p>SEPA flood maps show modelled long-term likelihood. Rainfall and river levels are observations; neither layer is a live flood warning.</p>
+        </section>
+
+        <section class="metrics" aria-label="Map summary">
+          <article>
+            <span id="rain-count">—</span>
+            <p>rain gauges</p>
+          </article>
+          <article>
+            <span id="level-count">—</span>
+            <p>level stations</p>
+          </article>
+          <article>
+            <span>0.5 m</span>
+            <p>source DTM</p>
+          </article>
+        </section>
+
+        <section class="control-card" aria-label="Visible layers">
+          <div class="section-heading">
+            <h2>Visible layers</h2>
+            <button id="fit-all" type="button">Fit all</button>
+          </div>
+          <label class="layer-control">
+            <input id="toggle-dem" type="checkbox" checked />
+            <span class="layer-symbol terrain-symbol"></span>
+                <span><strong>Elevation</strong><small>GeoServer WMS · 0.5 m DTM</small></span>
+          </label>
+          <label class="layer-control">
+            <input id="toggle-rain" type="checkbox" checked />
+            <span class="layer-symbol rain-symbol">R</span>
+            <span><strong>Rainfall gauges</strong><small>24-hour SEPA observations</small></span>
+          </label>
+          <label class="layer-control">
+            <input id="toggle-level" type="checkbox" checked />
+            <span class="layer-symbol level-symbol">L</span>
+            <span><strong>River-level stations</strong><small>Low / Normal / High · station-relative %</small></span>
+          </label>
+          <label class="opacity-control">
+            <span>Elevation opacity</span>
+            <input id="dem-opacity" type="range" min="0" max="1" step="0.05" value="0.82" />
+            <output id="dem-opacity-value">82%</output>
+          </label>
+          <button id="fit-dem" class="secondary-button" type="button">Zoom to elevation tile</button>
+        </section>
+
+        <section class="control-card flood-control-card" aria-label="SEPA flood likelihood">
+          <div class="section-heading">
+            <h2>SEPA flood likelihood</h2>
+            <a href="https://www.sepa.org.uk/flood-map-help-pages/likelihood-of-flooding/" target="_blank" rel="noreferrer">About</a>
+          </div>
+          <label class="layer-control">
+            <input id="toggle-flood" type="checkbox" checked />
+            <span class="layer-symbol flood-symbol" aria-hidden="true"></span>
+            <span><strong id="flood-layer-title">River · Medium</strong><small id="flood-layer-detail" aria-live="polite">0.5% annual chance · official WMS</small></span>
+          </label>
+          <div class="select-grid">
+            <label>
+              <span>Source</span>
+              <select id="flood-source">
+                <option value="river">River flooding</option>
+                <option value="surface">Surface water</option>
+                <option value="coastal">Coastal flooding</option>
+              </select>
+            </label>
+            <label>
+              <span>Likelihood</span>
+              <select id="flood-likelihood">
+                <option value="high">High · 10%</option>
+                <option value="medium" selected>Medium · 0.5%</option>
+                <option value="low">Low · 0.1%</option>
+              </select>
+            </label>
+          </div>
+          <label class="opacity-control">
+            <span>Flood opacity</span>
+            <input id="flood-opacity" type="range" min="0" max="1" step="0.05" value="0.5" />
+            <output id="flood-opacity-value">50%</output>
+          </label>
+          <p class="control-note">Select one source and likelihood at a time so nested flood extents remain readable.</p>
+        </section>
+
+        <section class="legend-card" aria-label="Elevation legend">
+          <div class="section-heading"><h2>Elevation</h2><span>metres</span></div>
+          <div class="elevation-ramp" aria-hidden="true"></div>
+          <div class="legend-values"><span>−1.5</span><span>20</span><span>50</span><span>91.1</span></div>
+        </section>
+
+        <footer>
+          <p id="retrieval-time">Loading SEPA snapshot…</p>
+          <p>DEM: Scottish Public Sector LiDAR Phase V · four 0.5 m tiles · EPSG:27700</p>
+          <p>Flood maps: © SEPA 2025 · Open Government Licence v3.0</p>
+        </footer>
+      </aside>
+
+      <section class="map-region" aria-label="Interactive Glasgow monitoring map">
+        <div id="monitoring-map"></div>
+        <div class="map-title-card">
+          <span class="live-dot" aria-hidden="true"></span>
+          <div><strong>Terrain, likelihood &amp; stations</strong><small>Change the flood scenario in the left panel; click a station for observations</small></div>
+        </div>
+        <div id="map-message" class="map-message" role="status"></div>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="./assets/terrain-monitoring/monitoring-snapshot.js?v=20260810-flood-2"></script>
+    <script src="./terrain-monitoring.js?v=20260810-flood-2"></script>
+  </body>
+</html>

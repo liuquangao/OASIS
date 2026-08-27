@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>Hydromind Flood Risk Assessment System</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="./demo.css?v=20260817-calculated-only" />
+  </head>
+  <body>
+    <div id="demo-map"></div>
+
+    <header class="demo-header">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">◈</div>
+        <div>
+          <h1>Hydromind Flood Risk Assessment System</h1>
+          <p>AI-Powered Spatial Intelligence</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span class="demo-pill">Demo Mode</span>
+        <button id="fullscreen-btn" class="ghost-button" type="button">Fullscreen</button>
+      </div>
+    </header>
+
+    <aside class="action-bar" aria-label="Map layer controls">
+      <button class="action-button" id="risk-overlay-btn" type="button">
+        <span>Layer</span>
+        <strong>Latest Hazard</strong>
+      </button>
+    </aside>
+
+    <button
+      id="agent-open-btn"
+      class="agent-open-button"
+      type="button"
+      aria-controls="agent-panel"
+      aria-expanded="false"
+    >
+      <span aria-hidden="true">‹</span> Agent
+    </button>
+
+    <section id="agent-panel" class="agent-panel" aria-label="Hydromind risk agent">
+      <div
+        id="agent-resizer"
+        class="agent-resizer"
+        role="separator"
+        aria-label="Resize Agent panel"
+        aria-orientation="vertical"
+        aria-valuemin="320"
+        aria-valuemax="720"
+        title="Drag to resize the Agent panel"
+        tabindex="0"
+      ></div>
+      <header class="agent-header">
+        <div>
+          <h2>Hydromind Risk Agent</h2>
+          <p>Autonomous geospatial tool agent</p>
+        </div>
+        <div class="agent-header-actions">
+          <span id="agent-status" class="agent-status">Checking…</span>
+          <button
+            id="agent-collapse-btn"
+            class="agent-collapse-button"
+            type="button"
+            aria-label="Collapse Agent panel to the right"
+            title="Collapse Agent panel"
+          >
+            ›
+          </button>
+        </div>
+      </header>
+
+      <div id="agent-history" class="agent-history">
+        <article class="message agent">
+          <span>Agent</span>
+          <p>I can choose and combine location, nearby-place, raster-query, and map tools to complete your request.</p>
+        </article>
+      </div>
+
+      <div class="prompt-row">
+        <button class="prompt-chip" type="button" data-prompt="Refresh and show the current flood risk of G2 8JB">Current risk at G2 8JB</button>
+        <button class="prompt-chip" type="button" data-prompt="Compare lower flood-risk driving routes from Glasgow Central Station to the University of Glasgow">Compare A→B routes</button>
+        <button class="prompt-chip" type="button" data-prompt="Find railway stations within 2 km with a higher flood hazard class than this location">Nearby higher-risk stations</button>
+        <button class="prompt-chip" type="button" data-prompt="Only show the higher-risk places">Keep higher risk</button>
+        <button class="prompt-chip" type="button" data-prompt="Explain the evidence for the highest one">Explain</button>
+      </div>
+
+      <form id="agent-form" class="agent-form">
+        <input
+          id="agent-input"
+          type="text"
+          autocomplete="off"
+          placeholder="Ask about a place, compare routes, or control the map…"
+          aria-label="Ask the map agent to locate a postcode or place"
+        />
+        <button type="submit">Send</button>
+      </form>
+    </section>
+
+    <aside id="legend-card" class="legend-card" aria-label="Hazard legend">
+      <h3 id="legend-title">Latest calculated hazard · 5 m</h3>
+      <div class="legend-row"><span class="risk high"></span>High · class 3</div>
+      <div class="legend-row"><span class="risk medium"></span>Medium · class 2</div>
+      <div class="legend-row"><span class="risk low"></span>Low · class 1</div>
+      <p class="legend-subtitle">Candidate routes</p>
+      <div class="legend-row"><span class="route-line best"></span>Lower calculated-hazard exposure</div>
+      <div class="legend-row"><span class="route-line alternative"></span>Alternative</div>
+      <p id="legend-note" class="legend-note">Latest SEPA-rainfall prototype snapshot. Not an operational flood warning.</p>
+    </aside>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="./demo.js?v=20260817-core-classes"></script>
+  </body>
+</html>
