@@ -31,6 +31,7 @@ const locationSelection = L.layerGroup().addTo(map);
 const locationMarkers = new Map();
 const routeSelection = L.layerGroup().addTo(map);
 const routeLayers = new Map();
+const analysisLayerObjects = new Map();
 const agentPanel = document.getElementById("agent-panel");
 const agentResizer = document.getElementById("agent-resizer");
 const agentCollapseButton = document.getElementById("agent-collapse-btn");
@@ -45,8 +46,76 @@ let sessionState = {
   visible_route_ids: [],
   active_location_id: null,
   hazard_layer_visible: false,
+  analysis_layers: [],
+  visible_analysis_layer_ids: [],
   last_task: null
 };
+
+function analysisLayerById(id) {
+  return sessionState.analysis_layers.find((layer) => layer.id === id);
+}
+
+function geoJsonStyle(feature) {
+  const properties = feature.properties || {};
+  const score = properties.relative_vulnerability ?? properties.priority_score ?? 0.5;
+  const color = score >= 0.67 ? "#dc2626" : score >= 0.34 ? "#f59e0b" : "#16a34a";
+  return { color: "#334155", weight: 1, fillColor: color, fillOpacity: 0.58 };
+}
+
+async function ensureAnalysisLayer(id) {
+  if (analysisLayerObjects.has(id)) return analysisLayerObjects.get(id);
+  const descriptor = analysisLayerById(id);
+  if (!descriptor) return null;
+  let layer;
+  if (descriptor.kind === "wms") {
+    layer = L.tileLayer.wms(descriptor.url, {
+      layers: descriptor.layer_name,
+      styles: descriptor.style,
+      format: "image/png",
+      transparent: true,
+      opacity: descriptor.opacity
+    });
+  } else {
+    const response = await fetch(descriptor.url);
+    layer = L.geoJSON(await response.json(), {
+      style: geoJsonStyle,
+      onEachFeature: (feature, item) => item.bindPopup(
+        Object.entries(feature.properties || {}).map(([key, value]) =>
+          `<strong>${escapeHtml(key)}</strong>: ${escapeHtml(String(value))}`
+        ).join("<br>")
+      )
+    });
+  }
+  analysisLayerObjects.set(id, layer);
+  return layer;
+}
+
+async function setAnalysisLayer(id, visible) {
+  const layer = await ensureAnalysisLayer(id);
+  if (!layer) return;
+  if (visible) {
+    layer.addTo(map);
+    if (!sessionState.visible_analysis_layer_ids.includes(id)) sessionState.visible_analysis_layer_ids.push(id);
+  } else {
+    map.removeLayer(layer);
+    sessionState.visible_analysis_layer_ids = sessionState.visible_analysis_layer_ids.filter((item) => item !== id);
+  }
+  renderAnalysisLayerControls();
+}
+
+function renderAnalysisLayerControls() {
+  const container = document.getElementById("analysis-layer-list");
+  container.replaceChildren();
+  sessionState.analysis_layers.forEach((descriptor) => {
+    const button = document.createElement("button");
+    const visible = sessionState.visible_analysis_layer_ids.includes(descriptor.id);
+    button.type = "button";
+    button.className = `action-button${visible ? " active" : ""}`;
+    button.innerHTML = `<span>Analysis</span><strong>${escapeHtml(descriptor.label)}</strong>`;
+    button.addEventListener("click", () => setAnalysisLayer(descriptor.id, !visible));
+    container.appendChild(button);
+  });
+}
 
 function resizeMap() {
   map.invalidateSize({ pan: false });
@@ -320,6 +389,8 @@ function applyMapEvents(events) {
       fitLocations(event.location_ids);
     } else if (event.type === "set_hazard_layer") {
       setHazardOverlay(event.visible);
+    } else if (event.type === "sync_analysis_layers") {
+      event.layer_ids.forEach((id) => setAnalysisLayer(id, true));
     } else if (event.type === "display_routes") {
       event.route_ids.forEach(displayRoute);
       event.route_ids.forEach((id) => {

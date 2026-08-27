@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from oasis.models.routes import RememberedRoute
+from oasis.models.analysis import AnalysisMapLayer
 
 
 class GeoPlace(BaseModel):
@@ -50,6 +51,8 @@ class MapSessionState(BaseModel):
     visible_route_ids: list[str] = Field(default_factory=list)
     active_location_id: str | None = None
     hazard_layer_visible: bool = False
+    analysis_layers: list[AnalysisMapLayer] = Field(default_factory=list)
+    visible_analysis_layer_ids: list[str] = Field(default_factory=list)
     last_task: Literal["locate", "risk", "nearby", "route"] | None = None
 
 
@@ -61,6 +64,7 @@ class MapEvent(BaseModel):
         "clear_locations",
         "fit_locations",
         "set_hazard_layer",
+        "sync_analysis_layers",
         "display_routes",
         "refresh_routes",
         "clear_routes",
@@ -68,6 +72,7 @@ class MapEvent(BaseModel):
     ]
     location_ids: list[str] = Field(default_factory=list)
     route_ids: list[str] = Field(default_factory=list)
+    layer_ids: list[str] = Field(default_factory=list)
     visible: bool | None = None
 
 

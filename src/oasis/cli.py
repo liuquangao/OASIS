@@ -12,7 +12,7 @@ import httpx
 from oasis import __version__
 from oasis.domain.areas import list_supported_areas, resolve_area
 from oasis.integrations.sepa import SepaTimeSeriesClient
-from oasis.runtime import run_agent
+from oasis.runtime import build_analysis_service, run_agent
 from oasis.settings import Settings
 
 
@@ -59,6 +59,28 @@ async def _run(args: argparse.Namespace) -> int:
         _json(output)
         return 0
 
+    if args.command == "all-hazards":
+        result = await build_analysis_service(settings, publish=not args.no_publish).run_all_hazards(
+            use_live_data=not args.static,
+            forecast_horizon=args.forecast_horizon_hours,
+        )
+        _json(result)
+        return 0
+
+    if args.command == "nrfa":
+        service = build_analysis_service(settings, publish=False)
+        if args.station_id:
+            result = await service.nrfa_history(
+                dataset=args.dataset,
+                station_id=args.station_id,
+                start_date=args.start_date,
+                end_date=args.end_date,
+            )
+        else:
+            result = await service.nrfa_stations(args.dataset)
+        _json(result)
+        return 0
+
     if args.tool_command == "area":
         area = resolve_area(args.place)
         _json(area)
@@ -101,6 +123,17 @@ def build_parser() -> argparse.ArgumentParser:
     agent = sub.add_parser("agent", help="Run the PydanticAI agent loop.")
     agent.add_argument("prompt")
     agent.add_argument("--model", help="PydanticAI model identifier.")
+
+    all_hazards = sub.add_parser("all-hazards", help="Run and publish all current/future hazard outputs.")
+    all_hazards.add_argument("--static", action="store_true", help="Use static/demo forcing instead of live providers.")
+    all_hazards.add_argument("--no-publish", action="store_true", help="Do not publish generated rasters to GeoServer.")
+    all_hazards.add_argument("--forecast-horizon-hours", type=int, default=6)
+
+    nrfa = sub.add_parser("nrfa", help="List or query local NRFA historical series.")
+    nrfa.add_argument("--dataset", choices=["nrfa_historical_river_flow", "nrfa_historical_rainfall"], required=True)
+    nrfa.add_argument("--station-id")
+    nrfa.add_argument("--start-date")
+    nrfa.add_argument("--end-date")
 
     tool = sub.add_parser("tool", help="Run deterministic tools without an LLM.")
     tool_sub = tool.add_subparsers(dest="tool_command", required=True)

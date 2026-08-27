@@ -14,6 +14,7 @@ from oasis.agent import flood_agent, spatial_agent
 from oasis.deps import Deps, MapAgentDeps
 from oasis.integrations.current_hazard import CoreAnalystCurrentHazard
 from oasis.integrations.core_analysis import CoreAnalystAnalysisService
+from oasis.integrations.geoserver import GeoServerPublisher
 from oasis.integrations.openstreetmap import OpenStreetMapClient
 from oasis.integrations.osrm import OsrmRoutingClient
 from oasis.integrations.raster_route_hazard import RasterRouteHazardAnalyzer
@@ -21,6 +22,31 @@ from oasis.integrations.sepa import SepaTimeSeriesClient
 from oasis.models.agent_output import AgentOutput
 from oasis.models.map_conversation import MapAgentResponse, MapSessionState
 from oasis.settings import Settings
+
+
+def build_analysis_service(settings: Settings, *, publish: bool = True) -> CoreAnalystAnalysisService:
+    current_hazard = CoreAnalystCurrentHazard(
+        input_dir=settings.core_analyst_input_dir,
+        config_path=settings.core_analyst_config_path,
+        output_dir=settings.current_hazard_output_dir,
+        raster_path=settings.current_hazard_raster_path,
+        wms_url=settings.geoserver_wms_url,
+        layer=settings.current_hazard_layer,
+    )
+    publisher = GeoServerPublisher(
+        settings.geoserver_rest_url,
+        settings.geoserver_wms_url,
+        settings.geoserver_user,
+        settings.geoserver_password.get_secret_value(),
+    ) if publish else None
+    return CoreAnalystAnalysisService(
+        input_dir=settings.core_analyst_input_dir,
+        output_dir=settings.core_analyst_analysis_output_dir,
+        config_dir=settings.core_analyst_config_dir,
+        current_hazard=current_hazard,
+        current_hazard_raster_path=settings.current_hazard_raster_path,
+        publisher=publisher,
+    )
 
 
 def _select_model(
@@ -109,22 +135,8 @@ async def run_spatial_agent(
             client,
             nominatim_url=settings.nominatim_url,
         )
-        current_hazard = CoreAnalystCurrentHazard(
-            input_dir=settings.core_analyst_input_dir,
-            config_path=settings.core_analyst_config_path,
-            output_dir=settings.current_hazard_output_dir,
-            raster_path=settings.current_hazard_raster_path,
-            wms_url=settings.geoserver_wms_url,
-            layer=settings.current_hazard_layer,
-        )
-        analysis = CoreAnalystAnalysisService(
-            input_dir=settings.core_analyst_input_dir,
-            output_dir=settings.core_analyst_analysis_output_dir,
-            config_dir=settings.core_analyst_config_dir,
-            current_hazard=current_hazard,
-            current_hazard_raster_path=settings.current_hazard_raster_path,
-            enable_experimental_predictions=settings.enable_experimental_predictions,
-        )
+        analysis = build_analysis_service(settings)
+        current_hazard = analysis.current_hazard
         routing = OsrmRoutingClient(client, base_url=settings.osrm_url)
         route_hazard = RasterRouteHazardAnalyzer(settings.current_hazard_raster_path)
         sepa_timeseries = SepaTimeSeriesClient(client)

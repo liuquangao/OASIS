@@ -174,6 +174,8 @@ class ExposureAnalyst:
             hazard,
             hazard_footprint,
             "buildings",
+            output_dir,
+            outputs,
             provenance,
             warnings,
         )
@@ -181,6 +183,8 @@ class ExposureAnalyst:
             exposure_sources.get("critical_infrastructure"),
             hazard,
             hazard_footprint,
+            output_dir,
+            outputs,
             provenance,
             warnings,
         )
@@ -382,6 +386,8 @@ class ExposureAnalyst:
         hazard: RasterGrid,
         hazard_footprint: Any,
         source_key: str,
+        output_dir: Path,
+        outputs: dict[str, str],
         provenance: dict[str, Any],
         warnings: list[dict[str, str]],
     ) -> dict[str, Any]:
@@ -391,7 +397,24 @@ class ExposureAnalyst:
         if collection is None:
             return {"total": None, "exposed": None, "exposure_ratio": None, "status": "unavailable"}
 
-        total, exposed = self._count_intersections(collection, hazard, hazard_footprint, source_key, warnings)
+        total = 0
+        exposed_features = []
+        for index, feature in enumerate(collection.features):
+            geometry = self._feature_geometry(feature, collection, hazard, source_key, index, warnings)
+            if geometry is None:
+                continue
+            total += 1
+            if hazard_footprint is not None and geometry.intersects(hazard_footprint):
+                exposed_features.append({
+                    "type": "Feature",
+                    "geometry": transform_geom(str(hazard.profile["crs"]), "EPSG:4326", mapping(geometry)),
+                    "properties": {**feature.properties, "exposed": True},
+                })
+        exposed = len(exposed_features)
+        if exposed_features:
+            path = output_dir / f"{source_key}_exposure.geojson"
+            path.write_text(json.dumps({"type": "FeatureCollection", "features": exposed_features}), encoding="utf-8")
+            outputs[f"{source_key}_exposure"] = str(path)
         ratio = None if total == 0 else exposed / total
         return {"total": total, "exposed": exposed, "exposure_ratio": ratio, "status": "available"}
 
@@ -400,6 +423,8 @@ class ExposureAnalyst:
         source: Any,
         hazard: RasterGrid,
         hazard_footprint: Any,
+        output_dir: Path,
+        outputs: dict[str, str],
         provenance: dict[str, Any],
         warnings: list[dict[str, str]],
     ) -> dict[str, Any]:
@@ -420,6 +445,7 @@ class ExposureAnalyst:
         exposed = 0
         by_type = {facility_type: 0 for facility_type in self.required_facility_types}
         categories_seen: set[str] = set()
+        exposed_features = []
         for index, feature in enumerate(collection.features):
             geometry = self._feature_geometry(feature, collection, hazard, source_key, index, warnings)
             if geometry is None:
@@ -430,6 +456,16 @@ class ExposureAnalyst:
             if hazard_footprint is not None and geometry.intersects(hazard_footprint):
                 exposed += 1
                 by_type[facility_type] = by_type.get(facility_type, 0) + 1
+                exposed_features.append({
+                    "type": "Feature",
+                    "geometry": transform_geom(str(hazard.profile["crs"]), "EPSG:4326", mapping(geometry)),
+                    "properties": {**feature.properties, "exposed": True},
+                })
+
+        if exposed_features:
+            path = output_dir / "critical_infrastructure_exposure.geojson"
+            path.write_text(json.dumps({"type": "FeatureCollection", "features": exposed_features}), encoding="utf-8")
+            outputs["critical_infrastructure_exposure"] = str(path)
 
         required_seen = sorted(set(self.required_facility_types) & categories_seen)
         status = "available" if set(self.required_facility_types).issubset(categories_seen) else "partial"

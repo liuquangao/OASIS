@@ -45,7 +45,13 @@ services used by the PydanticAI agent.
 - Produce typed provenance, warnings, and structured agent output.
 - Inspect machine-readable data readiness without fabricating unavailable data.
 - Run pluvial, fluvial, coastal, exposure, vulnerability, priority, scenario,
-  sensitivity, and combined-hazard analysis through controlled Agent tools.
+  sensitivity, combined-hazard, and one-click current/future batch analysis.
+- Publish generated rasters to GeoServer and add raster/GeoJSON results to the
+  website's interactive layer list.
+- List and query downloaded NRFA historical river-flow and catchment-rainfall
+  daily series.
+- Produce a component/data plan for transferring the framework to a new area
+  or hazard without claiming that missing models or data already exist.
 
 The observation Agent exposes three tools:
 
@@ -53,14 +59,16 @@ The observation Agent exposes three tools:
 - `get_recent_water_levels_near_location`
 - `get_recent_rainfall_near_location`
 
-The browser Spatial Agent exposes twenty-five composable tools. Nine cover
+The browser Spatial Agent exposes thirty-one composable tools. Nine cover
 geocoding, nearby-place search, route retrieval and analysis, route ranking,
 map display, and session cleanup. One retrieves recent observations from nearby
 SEPA rain gauges. Four hazard tools expose snapshot status, whole-area
-recalculation, point lookup, and layer visibility. Eleven extended Core Analyst
+recalculation, point lookup, and layer visibility. Seventeen extended Core Analyst
 tools cover data readiness, controlled input preparation, pluvial/fluvial/coastal
 hazard analysis, combined hazard, coastal dynamic evidence, exposure,
-vulnerability, explicit priority ranking, scenario comparison, and sensitivity.
+vulnerability, explicit priority ranking, scenario comparison, sensitivity,
+one-click all-hazard execution, NRFA station/series queries, and generalized
+analysis planning, and configuration-driven hazard extension execution.
 Every point and route risk analysis uses the same latest calculated raster.
 Core Analyst source is under
 `src/core_analyst/`; its local geodatabase inputs and generated rasters are
@@ -98,6 +106,9 @@ oasis doctor
 oasis tool area --place glasgow
 oasis tool water-levels --place glasgow --radius-km 30 --days 1 --limit 3
 oasis tool rainfall --place glasgow --hours 24 --limit 3
+oasis nrfa --dataset nrfa_historical_rainfall
+oasis nrfa --dataset nrfa_historical_river_flow --station-id 84001 --start-date 2020-01-01 --end-date 2020-12-31
+oasis all-hazards --static
 oasis agent "Assess the available flood evidence for Glasgow" --model test
 ```
 

@@ -14,6 +14,8 @@ from uuid import uuid4
 import numpy as np
 
 from core_analyst.data_registry import build_core_data_registry
+from core_analyst.workflows.generalized_analysis import plan_generalized_analysis
+from core_analyst.workflows.extensible_hazard import run_extensible_hazard
 from core_analyst.coastal_dynamic import (
     CoastalDynamicConfig,
     build_coastal_dynamic_evidence,
@@ -33,10 +35,13 @@ from core_analyst.tools.agent_tools import (
     run_vulnerability_analysis,
 )
 from core_analyst.utils.config import load_config
+from core_analyst.utils.visualization import create_debug_visualization
+from core_analyst.workflows.oasis_real_data import build_historical_hydrological_sources
 from core_analyst.workflows.multi_hazard import combine_hazard_maps
 
 from oasis.integrations.current_hazard import CoreAnalystCurrentHazard
 from oasis.models.analysis import (
+    AnalysisMapLayer,
     AnalysisRunSummary,
     AnalysisWarning,
     DataReadinessItem,
@@ -44,7 +49,10 @@ from oasis.models.analysis import (
     PriorityScenarioInput,
     PriorityUnitInput,
     PriorityWeights,
+    GeneralizedAnalysisPlan,
+    HazardExtensionSpec,
 )
+from oasis.integrations.geoserver import GeoServerPublisher
 
 
 _RUN_ID = re.compile(r"^[a-f0-9]{12}$")
@@ -68,15 +76,19 @@ class CoreAnalystAnalysisService:
         config_dir: Path,
         current_hazard: CoreAnalystCurrentHazard,
         current_hazard_raster_path: Path,
-        enable_experimental_predictions: bool = False,
+        publisher: GeoServerPublisher | None = None,
     ) -> None:
         self._input_dir = input_dir
         self._output_dir = output_dir
         self._config_dir = config_dir
         self._current_hazard = current_hazard
         self._current_hazard_raster_path = current_hazard_raster_path
-        self._enable_experimental_predictions = enable_experimental_predictions
+        self._publisher = publisher
         self._memo: dict[str, AnalysisRunSummary] = {}
+
+    @property
+    def current_hazard(self) -> CoreAnalystCurrentHazard:
+        return self._current_hazard
 
     async def data_readiness(self, category: str | None = None) -> DataReadinessSummary:
         records = await asyncio.to_thread(build_core_data_registry, self._input_dir)
@@ -138,35 +150,6 @@ class CoreAnalystAnalysisService:
         forecast_horizon: int = 6,
     ) -> AnalysisRunSummary:
         run_id = self._new_run_id()
-        if (
-            hazard_type == "pluvial"
-            and scenario == "future"
-            and not self._enable_experimental_predictions
-        ):
-            return self._persist(
-                run_id,
-                "hazard_pluvial_future",
-                {
-                    "status": "unavailable",
-                    "hazard_type": "pluvial",
-                    "scenario": "future",
-                    "summary": {
-                        "reason": "experimental_prediction_disabled",
-                        "enable_with": "OASIS_ENABLE_EXPERIMENTAL_PREDICTIONS=true",
-                    },
-                    "outputs": {},
-                    "provenance": {"tool": "RandomForestRiskPredictor"},
-                    "warnings": [
-                        {
-                            "code": "experimental_prediction_disabled",
-                            "message": (
-                                "The future-pluvial random-forest proxy is disabled because it is not trained "
-                                "on validated historical flood outcomes."
-                            ),
-                        }
-                    ],
-                },
-            )
         if hazard_type == "pluvial" and scenario == "current" and use_live_data:
             snapshot = await self._current_hazard.refresh()
             raw = {
@@ -314,6 +297,19 @@ class CoreAnalystAnalysisService:
             top_n=top_n,
             config=load_config(self._config_dir / "priority_analysis_config.yaml"),
         )
+        geometry = {unit.id: unit.geometry for unit in units if unit.geometry}
+        if geometry:
+            features = []
+            for item in raw.get("top_areas", raw.get("summary", {}).get("top_areas", [])):
+                if item["id"] in geometry:
+                    features.append({"type": "Feature", "geometry": geometry[item["id"]], "properties": item})
+            priority_map = self._output_dir / "priority" / run_id / "priority.geojson"
+            priority_map.parent.mkdir(parents=True, exist_ok=True)
+            priority_map.write_text(
+                json.dumps({"type": "FeatureCollection", "features": features}, indent=2),
+                encoding="utf-8",
+            )
+            raw.setdefault("outputs", {})["priority_map"] = str(priority_map)
         summary = self._persist(run_id, "priority", raw)
         self._memo[memo_key] = summary
         return summary
@@ -373,6 +369,189 @@ class CoreAnalystAnalysisService:
         )
         return self._persist(run_id, "scenario_comparison", raw)
 
+    async def nrfa_stations(self, dataset: str) -> AnalysisRunSummary:
+        run_id = self._new_run_id()
+        source = build_historical_hydrological_sources(self._input_dir)[dataset]
+        station_ids = await asyncio.to_thread(source.station_ids)
+        raw = {
+            "status": "success",
+            "summary": {
+                "dataset": dataset,
+                "station_count": len(station_ids),
+                "station_ids": station_ids,
+                "analytical_position": source.analytical_position,
+            },
+            "outputs": {},
+            "provenance": {"source": "National River Flow Archive"},
+            "warnings": [],
+        }
+        return self._persist(run_id, "nrfa_stations", raw)
+
+    async def nrfa_history(
+        self,
+        *,
+        dataset: str,
+        station_id: str,
+        start_date: str | None,
+        end_date: str | None,
+    ) -> AnalysisRunSummary:
+        run_id = self._new_run_id()
+        source = build_historical_hydrological_sources(self._input_dir)[dataset]
+        series = await asyncio.to_thread(
+            source.daily_values,
+            station_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        values = [row["value"] for row in series["values"] if row["value"] is not None]
+        raw = {
+            "status": "success",
+            "summary": {
+                "dataset": dataset,
+                "station_id": station_id,
+                "start_date": start_date,
+                "end_date": end_date,
+                "record_count": series["record_count"],
+                "missing_value_count": series["missing_value_count"],
+                "minimum": min(values) if values else None,
+                "maximum": max(values) if values else None,
+                "mean": sum(values) / len(values) if values else None,
+            },
+            "records": series["values"],
+            "outputs": {},
+            "provenance": series["provenance"],
+            "warnings": [],
+        }
+        return self._persist(run_id, f"nrfa_history_{dataset}", raw)
+
+    async def generalized_plan(
+        self,
+        *,
+        area: str,
+        hazard_type: str,
+        temporal_scope: str,
+    ) -> GeneralizedAnalysisPlan:
+        registry = await asyncio.to_thread(build_core_data_registry, self._input_dir)
+        return GeneralizedAnalysisPlan.model_validate(
+            plan_generalized_analysis(
+                area=area,
+                hazard_type=hazard_type,
+                temporal_scope=temporal_scope,
+                registry=registry,
+            )
+        )
+
+    async def run_all_hazards(
+        self,
+        *,
+        use_live_data: bool,
+        forecast_horizon: int = 6,
+    ) -> AnalysisRunSummary:
+        run_id = self._new_run_id()
+        root = self._output_dir / "all_hazards" / run_id
+        hazard_results: dict[str, dict[str, Any]] = {}
+        for hazard_type in ("pluvial", "fluvial", "coastal"):
+            for scenario in ("current", "future"):
+                result = await asyncio.to_thread(
+                    run_hazard_analysis,
+                    area="glasgow",
+                    hazard_type=hazard_type,
+                    scenario=scenario,
+                    input_dir=self._input_dir,
+                    output_dir=root / "hazard",
+                    forecast_horizon=forecast_horizon,
+                    use_live_data=use_live_data,
+                )
+                if result["status"] != "success":
+                    raise RuntimeError(result["summary"]["error"])
+                hazard_results[f"{hazard_type}_{scenario}"] = result
+        combined: dict[str, dict[str, Any]] = {}
+        for scenario in ("current", "future"):
+            combined[scenario] = await asyncio.to_thread(
+                combine_hazard_maps,
+                {name: hazard_results[f"{name}_{scenario}"] for name in ("pluvial", "fluvial", "coastal")},
+                root / "combined" / scenario,
+                scenario=scenario,
+            )
+        rasters = {
+            f"{hazard.title()} {scenario.title()}": hazard_results[f"{hazard}_{scenario}"]["outputs"]["hazard_class"]
+            for scenario in ("current", "future")
+            for hazard in ("pluvial", "fluvial", "coastal")
+        }
+        rasters.update({
+            f"Combined {scenario.title()}": combined[scenario]["outputs"]["hazard_class"]
+            for scenario in ("current", "future")
+        })
+        comparison = root / "all_hazards_classes.png"
+        await asyncio.to_thread(create_debug_visualization, rasters, comparison)
+        registry = await asyncio.to_thread(build_core_data_registry, self._input_dir)
+        historical = await asyncio.to_thread(build_historical_hydrological_sources, self._input_dir)
+        raw = {
+            "status": "success",
+            "summary": {
+                "hazards": list(hazard_results),
+                "combined_scenarios": list(combined),
+                "data_registry_status_counts": {
+                    status: sum(item.get("status") == status for item in registry)
+                    for status in sorted({str(item.get("status")) for item in registry})
+                },
+                "historical_sources": sorted(historical),
+            },
+            "hazard_results": hazard_results,
+            "combined_results": combined,
+            "outputs": {
+                **{f"{key}_hazard_class": value["outputs"]["hazard_class"] for key, value in hazard_results.items()},
+                **{f"combined_{key}_hazard_class": value["outputs"]["hazard_class"] for key, value in combined.items()},
+                "comparison_image": str(comparison),
+            },
+            "provenance": {"tool": "run_all_hazards", "use_live_data": use_live_data},
+            "warnings": [warning for result in hazard_results.values() for warning in result.get("warnings", [])],
+        }
+        summary_path = root / "all_hazards_summary.json"
+        summary_path.write_text(json.dumps(raw, indent=2, default=self._json_default), encoding="utf-8")
+        raw["outputs"]["summary_report"] = str(summary_path)
+        return self._persist(run_id, "all_hazards", raw)
+
+    async def register_extension(self, spec: HazardExtensionSpec) -> AnalysisRunSummary:
+        run_id = self._new_run_id()
+        registry = self._output_dir / "extensions"
+        registry.mkdir(parents=True, exist_ok=True)
+        path = registry / f"{spec.hazard_type}.json"
+        path.write_text(spec.model_dump_json(indent=2), encoding="utf-8")
+        return self._persist(run_id, "framework_extension", {
+            "status": "success",
+            "summary": spec.model_dump(),
+            "outputs": {"extension_spec": str(path)},
+            "provenance": {"tool": "register_extension"},
+            "warnings": [],
+        })
+
+    async def run_extension(
+        self,
+        *,
+        hazard_type: str,
+        area: str,
+        factor_paths: dict[str, str],
+    ) -> AnalysisRunSummary:
+        run_id = self._new_run_id()
+        spec = json.loads((self._output_dir / "extensions" / f"{hazard_type}.json").read_text(encoding="utf-8"))
+        root = self._input_dir.resolve()
+        resolved_paths = {}
+        for name, value in factor_paths.items():
+            path = Path(value)
+            path = (root / path).resolve() if not path.is_absolute() else path.resolve()
+            if root not in path.parents:
+                raise ValueError("Extension factor rasters must be stored under the Core Analyst Input directory.")
+            resolved_paths[name] = str(path)
+        raw = await asyncio.to_thread(
+            run_extensible_hazard,
+            spec,
+            resolved_paths,
+            self._output_dir / "extended_hazard" / run_id,
+            area,
+        )
+        return self._persist(run_id, f"hazard_{hazard_type}_custom", raw)
+
     def _prepared_payload(self) -> dict[str, Any]:
         manifest = (
             self._input_dir
@@ -397,7 +576,8 @@ class CoreAnalystAnalysisService:
         records = {record["dataset"]: record for record in build_core_data_registry(self._input_dir)}
         for key in ("socioeconomic", "critical_services"):
             record = records.get(key, {})
-            if record.get("status") == "available" and record.get("local_path"):
+            path = str(record.get("local_path", ""))
+            if record.get("status") == "available" and Path(path).suffix.lower() in {".geojson", ".json"}:
                 sources[key] = record["local_path"]
         return geography, sources
 
@@ -417,6 +597,7 @@ class CoreAnalystAnalysisService:
         status = str(result.get("status", "failed"))
         if status not in _STATUSES:
             status = "success" if status == "available" else "failed"
+        map_layers = self._map_layers(run_id, analysis_type, result.get("outputs", {}))
         return AnalysisRunSummary(
             run_id=run_id,
             analysis_type=analysis_type,
@@ -425,9 +606,41 @@ class CoreAnalystAnalysisService:
             output_keys=sorted(
                 key for key, value in result.get("outputs", {}).items() if value
             ),
+            map_layers=map_layers,
             warnings=self._warnings(result.get("warnings", [])),
             requires_human_review=True,
         )
+
+    def _map_layers(
+        self,
+        run_id: str,
+        analysis_type: str,
+        outputs: dict[str, Any],
+    ) -> list[AnalysisMapLayer]:
+        layers: list[AnalysisMapLayer] = []
+        for key, value in outputs.items():
+            if not isinstance(value, str):
+                continue
+            path = Path(value)
+            label = f"{analysis_type.replace('_', ' ').title()} · {key.replace('_', ' ').title()}"
+            if path.suffix.lower() in {".tif", ".tiff"} and self._publisher:
+                layers.append(
+                    self._publisher.publish_raster(
+                        path,
+                        name=f"{analysis_type}_{run_id}_{key}",
+                        label=label,
+                    )
+                )
+            elif path.suffix.lower() == ".geojson":
+                layers.append(
+                    AnalysisMapLayer(
+                        id=f"geojson-{run_id}-{key}",
+                        label=label,
+                        kind="geojson",
+                        url=f"http://127.0.0.1:8000/analysis/runs/{run_id}/artifacts/{key}",
+                    )
+                )
+        return layers
 
     def _load(self, run_id: str) -> dict[str, Any]:
         path = self._run_dir(run_id) / "result.json"

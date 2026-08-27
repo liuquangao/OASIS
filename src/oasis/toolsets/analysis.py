@@ -11,10 +11,14 @@ from oasis.deps import MapAgentDeps
 from oasis.models.analysis import (
     AnalysisRunSummary,
     DataReadinessSummary,
+    GeneralizedAnalysisPlan,
+    ExtensionFactor,
+    HazardExtensionSpec,
     PriorityScenarioInput,
     PriorityUnitInput,
     PriorityWeights,
 )
+from oasis.models.map_conversation import MapEvent
 
 
 analysis_tools = FunctionToolset[MapAgentDeps](
@@ -33,6 +37,18 @@ analysis_tools = FunctionToolset[MapAgentDeps](
 def _trace(ctx: RunContext[MapAgentDeps], name: str) -> None:
     if not ctx.deps.tool_trace or ctx.deps.tool_trace[-1] != name:
         ctx.deps.tool_trace.append(name)
+
+
+def _show_layers(ctx: RunContext[MapAgentDeps], result: AnalysisRunSummary) -> AnalysisRunSummary:
+    known = {layer.id for layer in ctx.deps.state.analysis_layers}
+    ctx.deps.state.analysis_layers.extend(layer for layer in result.map_layers if layer.id not in known)
+    ids = [layer.id for layer in result.map_layers]
+    ctx.deps.state.visible_analysis_layer_ids = list(dict.fromkeys(
+        [*ctx.deps.state.visible_analysis_layer_ids, *ids]
+    ))
+    if ids:
+        ctx.deps.events.append(MapEvent(type="sync_analysis_layers", layer_ids=ids))
+    return result
 
 
 @analysis_tools.tool
@@ -74,12 +90,12 @@ async def run_core_hazard_analysis(
     if not 1 <= forecast_horizon_hours <= 48:
         raise ValueError("forecast_horizon_hours must be between 1 and 48")
     _trace(ctx, "run_core_hazard_analysis")
-    return await ctx.deps.analysis.run_hazard(
+    return _show_layers(ctx, await ctx.deps.analysis.run_hazard(
         hazard_type=hazard_type,
         scenario=scenario,
         use_live_data=use_live_data,
         forecast_horizon=forecast_horizon_hours,
-    )
+    ))
 
 
 @analysis_tools.tool
@@ -96,11 +112,11 @@ async def run_core_exposure_analysis(
     if hazard_threshold not in {1, 2, 3}:
         raise ValueError("hazard_threshold must be 1, 2, or 3")
     _trace(ctx, "run_core_exposure_analysis")
-    return await ctx.deps.analysis.run_exposure(
+    return _show_layers(ctx, await ctx.deps.analysis.run_exposure(
         hazard_run_id=hazard_run_id,
         exposure_types=exposure_types,
         hazard_threshold=hazard_threshold,
-    )
+    ))
 
 
 @analysis_tools.tool
@@ -117,13 +133,13 @@ async def combine_core_hazard_analyses(
     if exposure_threshold not in {1, 2, 3}:
         raise ValueError("exposure_threshold must be 1, 2, or 3")
     _trace(ctx, "combine_core_hazard_analyses")
-    return await ctx.deps.analysis.combine_hazards(
+    return _show_layers(ctx, await ctx.deps.analysis.combine_hazards(
         pluvial_run_id=pluvial_run_id,
         fluvial_run_id=fluvial_run_id,
         coastal_run_id=coastal_run_id,
         scenario=scenario,
         exposure_threshold=exposure_threshold,
-    )
+    ))
 
 
 @analysis_tools.tool
@@ -156,10 +172,10 @@ async def run_core_vulnerability_analysis(
     """Build relative vulnerability profiles from verified statistical geography."""
 
     _trace(ctx, "run_core_vulnerability_analysis")
-    return await ctx.deps.analysis.run_vulnerability(
+    return _show_layers(ctx, await ctx.deps.analysis.run_vulnerability(
         scenario=scenario,
         dimensions=dimensions,
-    )
+    ))
 
 
 @analysis_tools.tool
@@ -188,12 +204,111 @@ async def run_core_priority_analysis(
         vulnerability=vulnerability_weight,
     )
     _trace(ctx, "run_core_priority_analysis")
-    return await ctx.deps.analysis.run_priority(
+    return _show_layers(ctx, await ctx.deps.analysis.run_priority(
         units=units,
         weights=weights,
         scenario_name=scenario_name,
         top_n=top_n,
+    ))
+
+
+@analysis_tools.tool
+async def run_all_core_hazards(
+    ctx: RunContext[MapAgentDeps],
+    use_live_data: bool = True,
+    forecast_horizon_hours: int = 6,
+) -> AnalysisRunSummary:
+    """Run current and future pluvial, fluvial, coastal and combined outputs in one call."""
+
+    _trace(ctx, "run_all_core_hazards")
+    return _show_layers(ctx, await ctx.deps.analysis.run_all_hazards(
+        use_live_data=use_live_data,
+        forecast_horizon=forecast_horizon_hours,
+    ))
+
+
+@analysis_tools.tool
+async def list_nrfa_historical_stations(
+    ctx: RunContext[MapAgentDeps],
+    dataset: Literal["nrfa_historical_river_flow", "nrfa_historical_rainfall"],
+) -> AnalysisRunSummary:
+    """List locally available NRFA historical flow or catchment-rainfall stations."""
+
+    _trace(ctx, "list_nrfa_historical_stations")
+    return await ctx.deps.analysis.nrfa_stations(dataset)
+
+
+@analysis_tools.tool
+async def query_nrfa_historical_series(
+    ctx: RunContext[MapAgentDeps],
+    dataset: Literal["nrfa_historical_river_flow", "nrfa_historical_rainfall"],
+    station_id: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> AnalysisRunSummary:
+    """Query an NRFA station's daily historical flow or rainfall time series."""
+
+    _trace(ctx, "query_nrfa_historical_series")
+    return await ctx.deps.analysis.nrfa_history(
+        dataset=dataset,
+        station_id=station_id,
+        start_date=start_date,
+        end_date=end_date,
     )
+
+
+@analysis_tools.tool
+async def plan_generalized_core_analysis(
+    ctx: RunContext[MapAgentDeps],
+    area: str,
+    hazard_type: str,
+    temporal_scope: Literal["historical", "current", "future"],
+) -> GeneralizedAnalysisPlan:
+    """Discover reusable components and missing data for a new area or hazard."""
+
+    _trace(ctx, "plan_generalized_core_analysis")
+    return await ctx.deps.analysis.generalized_plan(
+        area=area,
+        hazard_type=hazard_type,
+        temporal_scope=temporal_scope,
+    )
+
+
+@analysis_tools.tool
+async def register_core_hazard_extension(
+    ctx: RunContext[MapAgentDeps],
+    hazard_type: str,
+    factors: list[ExtensionFactor],
+    medium_threshold: float,
+    high_threshold: float,
+) -> AnalysisRunSummary:
+    """Register a configuration-driven hazard workflow; use only when the user explicitly asks to extend the framework."""
+
+    _trace(ctx, "register_core_hazard_extension")
+    return await ctx.deps.analysis.register_extension(HazardExtensionSpec(
+        hazard_type=hazard_type,
+        factors=factors,
+        medium_threshold=medium_threshold,
+        high_threshold=high_threshold,
+    ))
+
+
+@analysis_tools.tool
+async def run_registered_core_hazard(
+    ctx: RunContext[MapAgentDeps],
+    hazard_type: str,
+    area: str,
+    factor_paths_json: str,
+) -> AnalysisRunSummary:
+    """Run a registered hazard extension from a JSON object mapping factor names to local raster paths."""
+
+    factor_paths = TypeAdapter(dict[str, str]).validate_json(factor_paths_json)
+    _trace(ctx, "run_registered_core_hazard")
+    return _show_layers(ctx, await ctx.deps.analysis.run_extension(
+        hazard_type=hazard_type,
+        area=area,
+        factor_paths=factor_paths,
+    ))
 
 
 @analysis_tools.tool

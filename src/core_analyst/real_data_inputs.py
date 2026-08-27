@@ -54,6 +54,12 @@ def prepare_real_exposure_vulnerability_inputs(
                 "reason": "No local Data Zone 2022 polygon boundary file was found under Input.",
             }
         )
+    elif data_zone_geography.suffix.lower() in {".geojson", ".json"}:
+        data_zone_geography = build_enriched_data_zone_geography(
+            data_zone_geography,
+            census_path,
+            data_zone_dir / "glasgow_data_zones_2022_enriched.geojson",
+        )
 
     simd_raw = find_simd_source(input_dir)
     simd_path = None
@@ -112,6 +118,34 @@ def prepare_real_exposure_vulnerability_inputs(
         manifest=str(manifest_path),
         unavailable=unavailable,
     )
+
+
+def build_enriched_data_zone_geography(
+    boundary_path: str | Path,
+    attributes_path: str | Path,
+    output_path: str | Path,
+) -> Path:
+    boundary_path = Path(boundary_path)
+    output_path = Path(output_path)
+    with Path(attributes_path).open(encoding="utf-8", newline="") as handle:
+        attributes = {row["id"]: row for row in csv.DictReader(handle)}
+    payload = json.loads(boundary_path.read_text(encoding="utf-8"))
+    enriched_features = []
+    for feature in payload["features"]:
+        properties = feature.setdefault("properties", {})
+        unit_id = str(properties.get("id") or properties.get("DZCode") or properties.get("DZCODE"))
+        if unit_id not in attributes:
+            continue
+        properties.update(attributes.get(unit_id, {}))
+        properties["id"] = unit_id
+        properties["name"] = properties.get("name") or properties.get("DZName") or properties.get("DZNAME")
+        for key in ("population", "elderly_count", "elderly_prop", "occupied_households", "no_car_households", "no_car_household_prop"):
+            if properties.get(key) not in (None, ""):
+                properties[key] = float(properties[key])
+        enriched_features.append(feature)
+    payload["features"] = enriched_features
+    output_path.write_text(json.dumps(payload), encoding="utf-8")
+    return output_path
 
 
 def build_real_exposure_sources(prepared: PreparedRealInputs | dict[str, Any]) -> dict[str, Any]:

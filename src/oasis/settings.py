@@ -22,6 +22,9 @@ class Settings(BaseModel):
     geoserver_wms_url: str = (
         "http://127.0.0.1:8080/geoserver/glasgow_flood/wms"
     )
+    geoserver_rest_url: str = "http://127.0.0.1:8080/geoserver/rest"
+    geoserver_user: str = "admin"
+    geoserver_password: SecretStr = SecretStr("geoserver")
     current_hazard_layer: str = "glasgow_flood:current_hazard_class_5m"
     current_hazard_raster_path: Path = Path(
         "webgis/.runtime/data_dir/data/glasgow_flood/"
@@ -36,7 +39,6 @@ class Settings(BaseModel):
     core_analyst_analysis_output_dir: Path = Path(
         "analysis/core-analyst/outputs/agent"
     )
-    enable_experimental_predictions: bool = False
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
     osrm_url: str = "https://router.project-osrm.org"
 
@@ -60,6 +62,13 @@ class Settings(BaseModel):
             geoserver_wms_url=os.getenv(
                 "OASIS_GEOSERVER_WMS_URL",
                 "http://127.0.0.1:8080/geoserver/glasgow_flood/wms",
+            ),
+            geoserver_rest_url=os.getenv(
+                "OASIS_GEOSERVER_REST_URL", "http://127.0.0.1:8080/geoserver/rest"
+            ),
+            geoserver_user=os.getenv("OASIS_GEOSERVER_USER", "admin"),
+            geoserver_password=SecretStr(
+                os.getenv("OASIS_GEOSERVER_PASSWORD", "geoserver")
             ),
             current_hazard_layer=os.getenv(
                 "OASIS_CURRENT_HAZARD_LAYER",
@@ -102,10 +111,6 @@ class Settings(BaseModel):
                     "analysis/core-analyst/outputs/agent",
                 )
             ),
-            enable_experimental_predictions=os.getenv(
-                "OASIS_ENABLE_EXPERIMENTAL_PREDICTIONS", "false"
-            ).strip().lower()
-            in {"1", "true", "yes", "on"},
             nominatim_url=os.getenv(
                 "OASIS_NOMINATIM_URL",
                 "https://nominatim.openstreetmap.org/search",

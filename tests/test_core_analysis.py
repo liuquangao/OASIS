@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from zipfile import ZipFile
 
 import numpy as np
 import pytest
@@ -18,7 +19,7 @@ from core_analyst.tools.agent_tools import ToolInputError, run_priority_analysis
 from core_analyst.workflows.multi_hazard import combine_hazard_maps
 from oasis.agent import spatial_agent
 from oasis.integrations.core_analysis import CoreAnalystAnalysisService
-from oasis.models.analysis import PriorityScenarioInput, PriorityUnitInput, PriorityWeights
+from oasis.models.analysis import ExtensionFactor, HazardExtensionSpec, PriorityScenarioInput, PriorityUnitInput, PriorityWeights
 from oasis.models.current_hazard import CurrentHazardSnapshot
 
 
@@ -100,6 +101,12 @@ def test_spatial_agent_exposes_extended_core_analysis_tools() -> None:
         "compare_core_analysis_runs",
         "combine_core_hazard_analyses",
         "get_core_coastal_dynamic_evidence",
+        "run_all_core_hazards",
+        "list_nrfa_historical_stations",
+        "query_nrfa_historical_series",
+        "plan_generalized_core_analysis",
+        "register_core_hazard_extension",
+        "run_registered_core_hazard",
     } <= tools
 
 
@@ -211,6 +218,9 @@ def test_exposure_analysis_counts_intersecting_buildings(tmp_path: Path) -> None
 
     assert result["summary"]["buildings"]["total"] == 2
     assert result["summary"]["buildings"]["exposed"] == 1
+    exposure_map = Path(result["outputs"]["buildings_exposure"])
+    assert exposure_map.is_file()
+    assert '"exposed": true' in exposure_map.read_text(encoding="utf-8")
 
 
 def test_vulnerability_analysis_normalises_verified_indicator(tmp_path: Path) -> None:
@@ -295,3 +305,54 @@ def test_combined_hazard_uses_maximum_and_source_flags(tmp_path: Path) -> None:
 def test_run_id_validation_rejects_path_traversal(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         _service(tmp_path)._load("../../outside")
+
+
+async def test_nrfa_history_is_available_as_agent_service(tmp_path: Path) -> None:
+    csv_dir = tmp_path / "Input" / "CSV-20260825T012052Z-1-001" / "CSV"
+    csv_dir.mkdir(parents=True)
+    with ZipFile(csv_dir / "Rainfall.zip", "w") as archive:
+        archive.writestr(
+            "84001_test.csv",
+            "station,name,Test Station\ndataType,name,Rainfall\n2020-01-01,1.5\n2020-01-02,2.5\n",
+        )
+    stations = await _service(tmp_path).nrfa_stations("nrfa_historical_rainfall")
+    history = await _service(tmp_path).nrfa_history(
+        dataset="nrfa_historical_rainfall",
+        station_id="84001",
+        start_date="2020-01-01",
+        end_date="2020-01-02",
+    )
+    assert stations.summary["station_ids"] == ["84001"]
+    assert history.summary["mean"] == 2.0
+
+
+async def test_generalized_plan_exposes_extension_points(tmp_path: Path) -> None:
+    plan = await _service(tmp_path).generalized_plan(
+        area="Leeds",
+        hazard_type="heat",
+        temporal_scope="future",
+    )
+    assert plan.executable_now is False
+    assert "heat_evidence" in plan.required_datasets
+    assert plan.extension_points
+    assert plan.discovered_sources
+
+
+async def test_registered_hazard_extension_runs_shared_raster_pipeline(tmp_path: Path) -> None:
+    factor = tmp_path / "Input" / "factor.tif"
+    factor.parent.mkdir()
+    _write_raster(factor, np.array([[0.0, 1.0], [2.0, 3.0]], dtype="float32"), "float32")
+    service = _service(tmp_path)
+    await service.register_extension(HazardExtensionSpec(
+        hazard_type="heat",
+        factors=[ExtensionFactor(name="temperature", weight=1.0)],
+        medium_threshold=0.4,
+        high_threshold=0.8,
+    ))
+    result = await service.run_extension(
+        hazard_type="heat",
+        area="Leeds",
+        factor_paths={"temperature": str(factor)},
+    )
+    assert result.status == "success"
+    assert {"hazard_class", "hazard_index"} <= set(result.output_keys)

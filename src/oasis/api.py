@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+import json
+from pathlib import Path
+import re
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -15,6 +19,9 @@ from oasis.models.map_conversation import MapAgentResponse, MapSessionState
 class MapTurnRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=1000)
     state: MapSessionState = Field(default_factory=MapSessionState)
+
+
+_RUN_ID = re.compile(r"^[a-f0-9]{12}$")
 
 
 app = FastAPI(title="OASIS Map Agent API", version="0.1.0")
@@ -36,9 +43,7 @@ async def health() -> dict[str, str]:
             "configured" if settings.semantic_model_configured else "not_configured"
         ),
         "core_analysis": "enabled",
-        "experimental_predictions": (
-            "enabled" if settings.enable_experimental_predictions else "disabled"
-        ),
+        "all_hazards": "enabled",
     }
 
 
@@ -64,3 +69,30 @@ async def run_map_turn(request: MapTurnRequest) -> MapAgentResponse:
         else:
             detail = "An external service required by the Agent is unavailable."
         raise HTTPException(status_code=502, detail=detail) from exc
+
+
+@app.get("/analysis/runs/{run_id}")
+async def analysis_run(run_id: str) -> dict:
+    settings = Settings.from_env()
+    path = _result_path(settings, run_id)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get("/analysis/runs/{run_id}/artifacts/{key}")
+async def analysis_artifact(run_id: str, key: str) -> FileResponse:
+    settings = Settings.from_env()
+    result = json.loads(_result_path(settings, run_id).read_text(encoding="utf-8"))
+    artifact = Path(result["outputs"][key]).resolve()
+    output_root = settings.core_analyst_analysis_output_dir.resolve()
+    if output_root not in artifact.parents:
+        raise HTTPException(status_code=404, detail="Artifact not found.")
+    return FileResponse(artifact)
+
+
+def _result_path(settings: Settings, run_id: str) -> Path:
+    if not _RUN_ID.fullmatch(run_id):
+        raise HTTPException(status_code=404, detail="Analysis run not found.")
+    path = settings.core_analyst_analysis_output_dir / "runs" / run_id / "result.json"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Analysis run not found.")
+    return path
