@@ -417,6 +417,19 @@ For WMS rasters in GeoServer:
 4. Confirm native SRS is `EPSG:27700`.
 5. Enable declared SRS reprojection to `EPSG:4326`/`EPSG:3857` for web display.
 
+The downloaded Glasgow Phase V DTM can be published with its verified elevation
+style after GeoServer is running:
+
+```powershell
+.\scripts\publish-dem.ps1
+```
+
+This publishes the existing file mounted at
+`/data/raster/source/NS56NE_50CM_DTM_PHASE5.tif` as
+`glasgow_flood:dem`, uploads the workspace style `dem_elevation`, assigns it as
+the default style, and verifies the WMS legend. The colour ramp is based on the
+observed raster range of -1.495 m to 91.13 m, with `-9999` rendered transparent.
+
 For WFS vectors in GeoServer:
 
 1. Add a PostGIS datastore.

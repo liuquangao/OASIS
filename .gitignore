@@ -5,3 +5,8 @@ venv/
 .env
 postgis_data/
 geoserver_data/
+.runtime/
+
+# Large local terrain sources and an accidental Windows reparse point.
+data/raster/source/*.tif
+/Program

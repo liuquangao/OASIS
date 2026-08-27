@@ -5,15 +5,27 @@
     {
       "name": "dem",
       "display_name": "DEM",
-      "source": "Placeholder: UK Environment Agency / Ordnance Survey terrain data",
+      "source": "Scottish Government Scottish Public Sector LiDAR Phase V DTM via the Scottish Remote Sensing Portal",
+      "provider": "Scottish Government / Joint Nature Conservation Committee",
+      "retrieved_at": "2026-08-10T09:35:38+01:00",
+      "observation_period": "2020-2021 capture campaign",
+      "source_file": "data/raster/source/NS56NE, NS66NW, NS56SE and NS66SW 50CM DTM Phase 5 GeoTIFFs",
+      "license": "Open Government Licence v3",
+      "attribution": "Crown copyright Scottish Government, SEPA and Fugro (2020)",
       "category": "Flood Hazard",
       "type": "raster",
       "crs": "EPSG:27700",
-      "spatial_resolution": "1-5 m, source dependent",
+      "spatial_resolution": "0.5 m",
       "temporal_resolution": "static",
       "update_frequency": "on source refresh",
-      "description": "Digital elevation model for terrain-driven flood risk assessment.",
-      "layer": { "enabled": true, "service": "WMS", "geoserver_name": "dem" }
+      "description": "Bare-earth Digital Terrain Model for terrain-driven flood risk assessment. The four-tile mosaic covers a continuous 10 km by 10 km area with EPSG:27700 bounds 255000,660000 to 265000,670000.",
+      "quality_code": "Not supplied in the downloaded GeoTIFF metadata",
+      "warnings": [
+        "Elevation alone must not be interpreted as an operational flood warning.",
+        "NoData value is -9999.",
+        "This 10 km by 10 km mosaic does not cover all of Greater Glasgow or every displayed monitoring station."
+      ],
+      "layer": { "enabled": true, "service": "WMS", "geoserver_name": "dem_10km" }
     },
     {
       "name": "dtm",
