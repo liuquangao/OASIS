@@ -50,11 +50,12 @@ The observation Agent exposes three tools:
 - `get_recent_water_levels_near_location`
 - `get_recent_rainfall_near_location`
 
-The browser Spatial Agent exposes thirteen composable tools. Nine cover
+The browser Spatial Agent exposes fourteen composable tools. Nine cover
 geocoding, nearby-place search, route retrieval and analysis, route ranking,
-map display, and session cleanup. Four hazard tools expose snapshot status,
-whole-area recalculation, point lookup, and layer visibility. Every point and
-route risk analysis uses this same latest calculated raster. Core Analyst source is under
+map display, and session cleanup. One retrieves recent observations from nearby
+SEPA rain gauges. Four hazard tools expose snapshot status, whole-area
+recalculation, point lookup, and layer visibility. Every point and route risk
+analysis uses this same latest calculated raster. Core Analyst source is under
 `src/core_analyst/`; its local geodatabase inputs and generated rasters are
 under `analysis/core-analyst/` and are intentionally ignored by Git.
 

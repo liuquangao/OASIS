@@ -20,6 +20,8 @@ from .hydrometry import (
 )
 from .provenance import DataProvenance
 from .rainfall import (
+    LatestRainfallAreaSummary,
+    LatestRainfallObservation,
     RainfallAreaSummary,
     RainfallReading,
     RainfallStation,
@@ -46,6 +48,8 @@ __all__ = [
     "DataProvenance",
     "EvidenceReference",
     "MonitoringStation",
+    "LatestRainfallAreaSummary",
+    "LatestRainfallObservation",
     "RainfallAreaSummary",
     "RainfallReading",
     "RainfallStation",

@@ -9,6 +9,7 @@ from oasis.toolsets import (
     area_tools,
     hydrometry_tools,
     rainfall_tools,
+    map_rainfall_tools,
     map_tools,
     current_hazard_tools,
 )
@@ -54,6 +55,16 @@ refresh_current_hazard. Then call query_hazard_points and
 set_hazard_layer_visibility(true). Report its calculation and rainfall
 observation times and describe the result as a prototype snapshot.
 
+For questions about whether it is raining or how much rain has fallen, reuse the
+active remembered location when the user omits a place, or geocode the named
+place first. Then call get_latest_rainfall_near_location. Report the nearest
+gauge's latest accumulation, accumulation period, observation timestamp, and
+distance. A positive value means that gauge recorded rain during that interval;
+zero means it did not record rain during that interval. Neither result proves
+the exact condition at the user's location or at the present instant. Never
+infer rainfall from a hazard class. Do not refresh or query the hazard raster
+for a rainfall-only question.
+
 For nearby-place requests, first obtain or reuse a centre location, then call
 search_nearby_places with generic OpenStreetMap tags. Examples include
 amenity=hospital, amenity=school, railway=station, and
@@ -93,5 +104,5 @@ spatial_agent = Agent(
     output_type=MapAgentAnswer,
     instructions=SPATIAL_AGENT_INSTRUCTIONS,
     retries=2,
-    toolsets=[map_tools, current_hazard_tools],
+    toolsets=[map_tools, map_rainfall_tools, current_hazard_tools],
 )

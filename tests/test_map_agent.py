@@ -1,17 +1,68 @@
 from fastapi.testclient import TestClient
 import httpx
+from pydantic_ai import RunContext
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.usage import RunUsage
 from pydantic import SecretStr
 
 from oasis.agent import spatial_agent
 from oasis.api import app
+from oasis.deps import MapAgentDeps
 from oasis.models.map_conversation import MapSessionState, RememberedLocation
 from oasis.runtime import _select_model, run_spatial_agent
 from oasis.settings import Settings
+from oasis.toolsets.rainfall import get_latest_rainfall_near_location
 
 
 def test_spatial_agent_exists() -> None:
     assert spatial_agent is not None
+
+
+def test_spatial_agent_exposes_recent_rainfall() -> None:
+    registered_tools = {
+        name
+        for toolset in spatial_agent.toolsets
+        for name in getattr(toolset, "tools", {})
+    }
+    assert "get_latest_rainfall_near_location" in registered_tools
+
+
+async def test_map_rainfall_tool_uses_injected_provider_and_records_trace() -> None:
+    class FakeRainfallProvider:
+        request: dict[str, object] | None = None
+
+        async def latest_rainfall_near_location(self, **kwargs):
+            self.request = kwargs
+            return "rainfall-summary"
+
+    rainfall = FakeRainfallProvider()
+    deps = MapAgentDeps(
+        geocoder=None,  # type: ignore[arg-type]
+        nearby_places=None,  # type: ignore[arg-type]
+        rainfall=rainfall,  # type: ignore[arg-type]
+        current_hazard=None,  # type: ignore[arg-type]
+        routing=None,  # type: ignore[arg-type]
+        route_hazard=None,  # type: ignore[arg-type]
+        state=MapSessionState(),
+        events=[],
+        tool_trace=[],
+    )
+    ctx = RunContext(deps=deps, model=TestModel(), usage=RunUsage())
+
+    result = await get_latest_rainfall_near_location(
+        ctx,
+        latitude=55.8642,
+        longitude=-4.2518,
+    )
+
+    assert result == "rainfall-summary"
+    assert rainfall.request == {
+        "latitude": 55.8642,
+        "longitude": -4.2518,
+        "radius_km": 20,
+        "limit": 3,
+    }
+    assert deps.tool_trace == ["get_latest_rainfall_near_location"]
 
 
 async def test_spatial_agent_returns_updated_session_envelope() -> None:

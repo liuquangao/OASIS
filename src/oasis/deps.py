@@ -8,6 +8,7 @@ from oasis.integrations.base import (
     GeocodingProvider,
     CurrentHazardProvider,
     HydrometricProvider,
+    LatestRainfallProvider,
     NearbyPlaceProvider,
     RainfallProvider,
     RouteHazardProvider,
@@ -30,6 +31,7 @@ class MapAgentDeps:
 
     geocoder: GeocodingProvider
     nearby_places: NearbyPlaceProvider
+    rainfall: LatestRainfallProvider
     current_hazard: CurrentHazardProvider
     routing: RoutingProvider
     route_hazard: RouteHazardProvider

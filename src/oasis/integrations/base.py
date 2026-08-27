@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from oasis.models.hydrometry import WaterLevelAreaSummary
-from oasis.models.rainfall import RainfallAreaSummary
+from oasis.models.rainfall import LatestRainfallAreaSummary, RainfallAreaSummary
 from oasis.models.hazard import HazardLookupResult
 from oasis.models.current_hazard import CurrentHazardSnapshot
 from oasis.models.map_conversation import GeoPlace
@@ -33,6 +33,17 @@ class RainfallProvider(Protocol):
         period_hours: int = 24,
         limit: int = 3,
     ) -> RainfallAreaSummary: ...
+
+
+class LatestRainfallProvider(Protocol):
+    async def latest_rainfall_near_location(
+        self,
+        *,
+        latitude: float,
+        longitude: float,
+        radius_km: float = 20,
+        limit: int = 3,
+    ) -> LatestRainfallAreaSummary: ...
 
 
 class GeocodingProvider(Protocol):

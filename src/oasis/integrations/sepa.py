@@ -22,6 +22,8 @@ from oasis.models.hydrometry import (
 )
 from oasis.models.provenance import DataProvenance
 from oasis.models.rainfall import (
+    LatestRainfallAreaSummary,
+    LatestRainfallObservation,
     RainfallAreaSummary,
     RainfallReading,
     RainfallStation,
@@ -32,6 +34,7 @@ from oasis.models.rainfall import (
 SEPA_BASE_URL = "https://timeseries.sepa.org.uk/KiWIS/KiWIS"
 SEPA_DOCS_URL = "https://timeseriesdoc.sepa.org.uk/api-documentation/"
 SEPA_WATER_LEVELS_URL = "https://waterlevels.sepa.org.uk"
+SEPA_LATEST_RAINFALL_URL = "https://www2.sepa.org.uk/Rainfall/api/Stations"
 
 _NORMAL_RANGE_PATTERN = re.compile(
     r"Normal\s+range\s+(-?\d+(?:\.\d+)?)\s*m\s+to\s+(-?\d+(?:\.\d+)?)\s*m",
@@ -62,6 +65,109 @@ class SepaTimeSeriesClient:
             return response.json()
         except ValueError as exc:
             raise SepaTimeSeriesError("SEPA returned a non-JSON response") from exc
+
+    async def latest_rainfall_near_location(
+        self,
+        *,
+        latitude: float,
+        longitude: float,
+        radius_km: float = 20,
+        limit: int = 3,
+    ) -> LatestRainfallAreaSummary:
+        """Return the latest reported accumulation at nearby SEPA rain gauges."""
+
+        if radius_km <= 0:
+            raise ValueError("radius_km must be positive")
+        if not 1 <= limit <= 10:
+            raise ValueError("limit must be between 1 and 10")
+
+        response = await self._client.get(SEPA_LATEST_RAINFALL_URL)
+        response.raise_for_status()
+        try:
+            rows = response.json()
+        except ValueError as exc:
+            raise SepaTimeSeriesError("SEPA returned a non-JSON response") from exc
+
+        observations: list[LatestRainfallObservation] = []
+        for row in rows:
+            try:
+                station_latitude = float(row["station_latitude"])
+                station_longitude = float(row["station_longitude"])
+                accumulation_mm = float(row["itemValue"])
+                if accumulation_mm < 0:
+                    continue
+                accumulation_hours = float(row.get("accumRange") or 1)
+                if accumulation_hours <= 0:
+                    accumulation_hours = 1
+                timestamp = datetime.strptime(
+                    row["itemDate"], "%Y-%m-%d %H:%M:%S"
+                ).replace(tzinfo=timezone.utc)
+                distance_km = haversine_km(
+                    latitude,
+                    longitude,
+                    station_latitude,
+                    station_longitude,
+                )
+                if distance_km > radius_km:
+                    continue
+                observations.append(
+                    LatestRainfallObservation(
+                        station=RainfallStation(
+                            station_no=str(row["station_no"]),
+                            name=row["station_name"],
+                            latitude=station_latitude,
+                            longitude=station_longitude,
+                            distance_km=round(distance_km, 3),
+                        ),
+                        timestamp=timestamp,
+                        accumulation_mm=round(accumulation_mm, 3),
+                        accumulation_hours=accumulation_hours,
+                        rate_mm_per_hour=round(
+                            accumulation_mm / accumulation_hours,
+                            3,
+                        ),
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        observations.sort(key=lambda item: item.station.distance_km)
+        observations = observations[:limit]
+        warnings = [
+            "Latest SEPA rain-gauge accumulations are local observations, not a forecast or an observation at the user's exact location.",
+            "Use each station's timestamp and accumulation period; the latest published value may lag the present instant.",
+        ]
+        if observations:
+            newest = max(item.timestamp for item in observations)
+            if (datetime.now(timezone.utc) - newest).total_seconds() > 2 * 3600:
+                warnings.append("The newest nearby SEPA rainfall observation is more than two hours old.")
+
+        return LatestRainfallAreaSummary(
+            latitude=latitude,
+            longitude=longitude,
+            radius_km=radius_km,
+            station_count=len(observations),
+            stations=observations,
+            provenance=DataProvenance(
+                provider="Scottish Environment Protection Agency (SEPA)",
+                dataset="SEPA latest rainfall observations",
+                source_url=SEPA_LATEST_RAINFALL_URL,
+                retrieved_at=datetime.now(timezone.utc),
+                observation_start=(
+                    min(item.timestamp for item in observations)
+                    if observations
+                    else None
+                ),
+                observation_end=(
+                    max(item.timestamp for item in observations)
+                    if observations
+                    else None
+                ),
+                licence=None,
+                integration="oasis.integrations.sepa.SepaTimeSeriesClient.latest_rainfall_near_location",
+            ),
+            warnings=warnings,
+        )
 
     async def list_level_stations(self) -> list[MonitoringStation]:
         rows = await self._query(
@@ -433,6 +539,7 @@ class SepaTimeSeriesClient:
             requested_period_hours=period_hours,
             reading_count=len(requested),
             recent_readings=requested[-8:],
+            latest_15min_mm=round(requested[-1].value_mm, 3),
             total_mm=round(sum(reading.value_mm for reading in requested), 3),
             last_1h_mm=round(rainfall_total(readings, hours=1), 3),
             last_3h_mm=round(rainfall_total(readings, hours=3), 3),

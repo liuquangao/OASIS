@@ -28,6 +28,7 @@ class RainfallStationSummary(BaseModel):
     requested_period_hours: int = Field(ge=1)
     reading_count: int = Field(ge=1)
     recent_readings: list[RainfallReading]
+    latest_15min_mm: float = Field(ge=0)
     total_mm: float = Field(ge=0)
     last_1h_mm: float = Field(ge=0)
     last_3h_mm: float = Field(ge=0)
@@ -49,3 +50,20 @@ class RainfallAreaSummary(BaseModel):
     provenance: DataProvenance
     warnings: list[str] = Field(default_factory=list)
 
+
+class LatestRainfallObservation(BaseModel):
+    station: RainfallStation
+    timestamp: datetime
+    accumulation_mm: float = Field(ge=0)
+    accumulation_hours: float = Field(gt=0)
+    rate_mm_per_hour: float = Field(ge=0)
+
+
+class LatestRainfallAreaSummary(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    radius_km: float = Field(gt=0)
+    station_count: int = Field(ge=0)
+    stations: list[LatestRainfallObservation]
+    provenance: DataProvenance
+    warnings: list[str] = Field(default_factory=list)

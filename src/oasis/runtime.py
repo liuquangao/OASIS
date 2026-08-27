@@ -118,9 +118,11 @@ async def run_spatial_agent(
         )
         routing = OsrmRoutingClient(client, base_url=settings.osrm_url)
         route_hazard = RasterRouteHazardAnalyzer(settings.current_hazard_raster_path)
+        sepa_timeseries = SepaTimeSeriesClient(client)
         deps = MapAgentDeps(
             geocoder=osm,
             nearby_places=osm,
+            rainfall=sepa_timeseries,
             current_hazard=current_hazard,
             routing=routing,
             route_hazard=route_hazard,
