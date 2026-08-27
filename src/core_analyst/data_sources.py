@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import urlopen
+from zipfile import ZipFile
+import csv
 import json
+import time
 
 import numpy as np
 import rasterio
@@ -36,25 +39,198 @@ class DataSource(ABC):
         """Return an analysis-ready raster/grid."""
 
 
-class StaticRasterSource(DataSource):
-    def __init__(self, name: str, path: str | Path):
-        self.name = name
-        self.path = Path(path)
+class DynamicDataError(RuntimeError):
+    """Raised when a dynamic source fails after bounded retry."""
 
-    def get_data(self, reference: RasterGrid | None = None) -> RasterGrid:
-        if not self.path.exists():
-            raise FileNotFoundError(f"Static raster not found for {self.name}: {self.path}")
+    def __init__(self, diagnostics: dict[str, Any]):
+        self.diagnostics = diagnostics
+        super().__init__(json.dumps(diagnostics))
 
-        with rasterio.open(self.path) as dataset:
-            data = dataset.read(1).astype("float32")
-            profile = dataset.profile.copy()
 
-        return RasterGrid(
-            name=self.name,
-            data=data,
-            profile=profile,
-            source_type="static",
-            metadata={"path": str(self.path)},
+class NRFADailyZipSource:
+    """Read NRFA station daily time series from downloaded ZIP CSV bundles."""
+
+    missing_tokens = {"", "NA", "N/A", "NaN", "nan", "null", "NULL", "-999", "-999.0"}
+
+    def __init__(
+        self,
+        zip_path: str | Path,
+        *,
+        dataset_kind: str,
+        hazard_type: str,
+        temporal_state: str = "historical",
+        evidence_type: str = "dynamic",
+        source_url: str = "https://nrfa.ceh.ac.uk/data/search",
+        license_name: str = "NRFA terms and conditions",
+    ):
+        self.zip_path = Path(zip_path)
+        self.dataset_kind = dataset_kind
+        self.hazard_type = hazard_type
+        self.temporal_state = temporal_state
+        self.evidence_type = evidence_type
+        self.source_url = source_url
+        self.license_name = license_name
+
+    def station_ids(self) -> list[str]:
+        return sorted(self._station_entries())
+
+    def station_metadata(self, station_id: str) -> dict[str, Any]:
+        parsed = self._parse_station(station_id, include_values=False)
+        return parsed["metadata"]
+
+    def daily_values(
+        self,
+        station_id: str,
+        *,
+        start_date: str | date | None = None,
+        end_date: str | date | None = None,
+    ) -> dict[str, Any]:
+        parsed = self._parse_station(station_id, include_values=True)
+        start = _coerce_date(start_date)
+        end = _coerce_date(end_date)
+        values = []
+        missing_count = 0
+        for row in parsed["values"]:
+            row_date = row["date"]
+            if start and row_date < start:
+                continue
+            if end and row_date > end:
+                continue
+            if row["value"] is None:
+                missing_count += 1
+            values.append(
+                {
+                    "date": row_date.isoformat(),
+                    "value": row["value"],
+                    "missing": row["value"] is None,
+                }
+            )
+        return {
+            "station_id": str(station_id),
+            "metadata": parsed["metadata"],
+            "values": values,
+            "missing_value_count": missing_count,
+            "record_count": len(values),
+            "provenance": self._provenance(parsed["metadata"]),
+        }
+
+    def _station_entries(self) -> dict[str, str]:
+        if not self.zip_path.exists():
+            raise FileNotFoundError(f"NRFA ZIP not found: {self.zip_path}")
+        entries: dict[str, str] = {}
+        with ZipFile(self.zip_path) as archive:
+            for name in archive.namelist():
+                if not name.lower().endswith(".csv"):
+                    continue
+                station = Path(name).stem.split("_")[0]
+                entries[station] = name
+        return entries
+
+    def _parse_station(self, station_id: str, *, include_values: bool) -> dict[str, Any]:
+        entries = self._station_entries()
+        station_id = str(station_id)
+        if station_id not in entries:
+            raise KeyError(f"Station {station_id} not found in {self.zip_path}")
+        metadata: dict[str, Any] = {
+            "file": {},
+            "station": {},
+            "database": {},
+            "dataType": {},
+            "data": {},
+        }
+        values: list[dict[str, Any]] = []
+        with ZipFile(self.zip_path) as archive:
+            with archive.open(entries[station_id]) as raw:
+                text = (line.decode("utf-8-sig", "replace") for line in raw)
+                reader = csv.reader(text)
+                in_data = False
+                for row in reader:
+                    if not row:
+                        continue
+                    if not in_data and len(row) >= 3 and row[0] in metadata:
+                        metadata[row[0]][row[1]] = row[2]
+                        continue
+                    if not in_data and row[0] == "data" and len(row) >= 3:
+                        metadata["data"][row[1]] = row[2]
+                        continue
+                    in_data = True
+                    if not include_values:
+                        continue
+                    if len(row) < 2:
+                        continue
+                    parsed_date = _parse_iso_date(row[0])
+                    if parsed_date is None:
+                        continue
+                    values.append({"date": parsed_date, "value": self._parse_value(row[1])})
+        metadata["source_file"] = entries[station_id]
+        metadata["zip_path"] = str(self.zip_path)
+        metadata["dataset_kind"] = self.dataset_kind
+        metadata["data_status"] = "historical"
+        metadata["evidence_type"] = self.evidence_type
+        metadata["temporal_state"] = self.temporal_state
+        metadata["hazard_type"] = self.hazard_type
+        metadata["analytical_position"] = self.analytical_position
+        metadata["source_url"] = self.source_url
+        metadata["license"] = self.license_name
+        metadata["temporal_resolution"] = metadata.get("dataType", {}).get("period", "day")
+        return {"metadata": metadata, "values": values}
+
+    @property
+    def analytical_position(self) -> dict[str, str]:
+        return {
+            "hazard_type": self.hazard_type,
+            "temporal_state": self.temporal_state,
+            "evidence_type": self.evidence_type,
+        }
+
+    def _parse_value(self, raw_value: str) -> float | None:
+        value = raw_value.strip()
+        if value in self.missing_tokens:
+            return None
+        try:
+            number = float(value)
+        except ValueError:
+            return None
+        if not np.isfinite(number):
+            return None
+        return number
+
+    def _provenance(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "source": "National River Flow Archive",
+            "dataset_name": metadata.get("dataType", {}).get("name", self.dataset_kind),
+            "source_url": self.source_url,
+            "download_date": metadata.get("file", {}).get("timestamp"),
+            "spatial_resolution": "station/catchment daily time series",
+            "temporal_resolution": metadata.get("temporal_resolution", "day"),
+            "crs": "British National Grid grid references in station metadata",
+            "coverage": metadata.get("station", {}).get("name"),
+            "processing_method": "Parsed downloaded NRFA ZIP CSV without spatial interpolation.",
+            "license": self.license_name,
+            "data_status": "historical",
+            "analytical_position": self.analytical_position,
+        }
+
+
+class NRFAHistoricalRiverFlowSource(NRFADailyZipSource):
+    """NRFA gauged daily river flow: Fluvial / Historical / Dynamic."""
+
+    def __init__(self, zip_path: str | Path):
+        super().__init__(
+            zip_path,
+            dataset_kind="gauged_daily_flow",
+            hazard_type="fluvial",
+        )
+
+
+class NRFAHistoricalRainfallSource(NRFADailyZipSource):
+    """NRFA catchment daily rainfall: Historical / Dynamic rainfall evidence."""
+
+    def __init__(self, zip_path: str | Path, *, hazard_type: str = "pluvial"):
+        super().__init__(
+            zip_path,
+            dataset_kind="catchment_daily_rainfall",
+            hazard_type=hazard_type,
         )
 
 
@@ -62,6 +238,12 @@ class RealTimeAPISource(DataSource):
     """Base class for dynamic sources that become analysis-ready grids."""
 
     source_name = "real_time_api"
+    output_name = "rainfall"
+    data_status = "available"
+    data_type = "observed"
+    is_mock = False
+    max_attempts = 1
+    retry_backoff_seconds = 0.0
 
     @abstractmethod
     def retrieve_observations(self) -> dict[str, Any]:
@@ -75,29 +257,97 @@ class RealTimeAPISource(DataSource):
         if reference is None:
             raise ValueError("Real-time sources require a reference raster grid for spatial alignment.")
 
-        observations = self.retrieve_observations()
+        observations, diagnostics = self._retrieve_with_retries()
         grid = self.observations_to_grid(observations, reference).astype("float32")
         profile = reference.profile.copy()
         profile.update(dtype="float32", count=1)
         return RasterGrid(
-            name="rainfall",
+            name=self.output_name,
             data=grid,
             profile=profile,
             source_type="real_time",
             metadata={
                 "source": self.source_name,
+                "availability": {
+                    "dataset": self.source_name,
+                    "status": self.data_status,
+                    "type": self.data_type,
+                    "source": self.source_name,
+                    "is_mock": self.is_mock,
+                },
                 "observations": observations,
+                "dynamic_data_diagnostics": diagnostics,
                 "prototype_note": (
                     "Prototype rainfall grid; not a scientifically validated rainfall field reconstruction."
                 ),
             },
         )
 
+    def _retrieve_with_retries(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        attempts = max(int(getattr(self, "max_attempts", 1)), 1)
+        backoff = max(float(getattr(self, "retry_backoff_seconds", 0.0)), 0.0)
+        errors: list[dict[str, Any]] = []
+        for attempt in range(1, attempts + 1):
+            try:
+                observations = self.retrieve_observations()
+                if not observations:
+                    raise ValueError("Dynamic source returned an empty response.")
+                return observations, {
+                    "source": self.source_name,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "attempts": attempt,
+                    "final_status": "success",
+                    "errors": errors,
+                    "fallback_used": None,
+                }
+            except Exception as exc:
+                errors.append({
+                    "attempt": attempt,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                })
+                if attempt < attempts and backoff:
+                    time.sleep(backoff * attempt)
+        raise DynamicDataError({
+            "source": self.source_name,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "attempts": attempts,
+            "final_status": "failed",
+            "errors": errors,
+            "fallback_used": None,
+        })
+
+    def _idw_grid(
+        self,
+        reference: RasterGrid,
+        station_xs: list[float],
+        station_ys: list[float],
+        station_values: list[float],
+        minimum_distance_squared: float = 25.0,
+    ) -> np.ndarray:
+        transform = reference.profile["transform"]
+        height, width = reference.data.shape
+        cols = np.arange(width, dtype="float32")
+        rows = np.arange(height, dtype="float32")
+        xs = transform.c + (cols + 0.5) * transform.a
+        ys = transform.f + (rows + 0.5) * transform.e
+        xx, yy = np.meshgrid(xs, ys)
+        total = np.zeros(reference.data.shape, dtype="float32")
+        weights = np.zeros(reference.data.shape, dtype="float32")
+        for sx, sy, value in zip(station_xs, station_ys, station_values):
+            dist2 = (xx - float(sx)) ** 2 + (yy - float(sy)) ** 2
+            weight = 1.0 / np.maximum(dist2, minimum_distance_squared)
+            total += weight.astype("float32") * float(value)
+            weights += weight.astype("float32")
+        return (total / np.maximum(weights, 1e-12)).astype("float32")
+
 
 class MockRainfallAPISource(RealTimeAPISource):
     """Synthetic dynamic rainfall source for demos that must run offline."""
 
     source_name = "mock_realtime_rainfall_api"
+    data_type = "mock"
+    is_mock = True
 
     def __init__(self, base_mm_per_hour: float = 18.0, multiplier: float = 1.0):
         self.base_mm_per_hour = base_mm_per_hour
@@ -136,6 +386,7 @@ class SEPARainfallAPISource(RealTimeAPISource):
     """SEPA rainfall station connector using public station/latest-rainfall JSON."""
 
     source_name = "sepa_rainfall_api"
+    data_type = "observed"
     stations_url = "https://www2.sepa.org.uk/Rainfall/api/Stations"
     latest_station_url_template = "https://www2.sepa.org.uk/Rainfall/api/Stations/{station_no}"
     hourly_history_url_template = "https://www2.sepa.org.uk/Rainfall/api/Hourly/{station_no}?all=true"
@@ -146,24 +397,35 @@ class SEPARainfallAPISource(RealTimeAPISource):
         timeout_seconds: int = 20,
         max_age_hours: float = 6.0,
         discovery_buffer_meters: float = 0.0,
+        discovery_bounds: Any | None = None,
         include_hourly_history: bool = False,
         history_hours: int = 6,
+        max_attempts: int = 2,
+        retry_backoff_seconds: float = 0.25,
     ):
         self.station_numbers = [str(station) for station in station_numbers] if station_numbers else []
         self.timeout_seconds = timeout_seconds
         self.max_age_hours = max_age_hours
         self.discovery_buffer_meters = discovery_buffer_meters
+        self.discovery_bounds = discovery_bounds
+        self.discovery_metadata = _discovery_metadata(discovery_bounds, discovery_buffer_meters)
         self.include_hourly_history = include_hourly_history
         self.history_hours = history_hours
+        self.max_attempts = max_attempts
+        self.retry_backoff_seconds = retry_backoff_seconds
 
     def get_data(self, reference: RasterGrid | None = None) -> RasterGrid:
         if reference is None:
             raise ValueError("SEPA rainfall source requires a reference grid for station discovery and gridding.")
         if not self.station_numbers or self.station_numbers == ["auto"]:
-            discovered = self.discover_stations(reference, buffer_meters=self.discovery_buffer_meters)
+            discovered = self.discover_stations(
+                reference,
+                buffer_meters=self.discovery_buffer_meters,
+                discovery_bounds=self.discovery_bounds,
+            )
             self.station_numbers = [station["station_no"] for station in discovered]
             if not self.station_numbers:
-                raise ValueError("No SEPA rainfall stations found inside the reference grid bounds.")
+                raise ValueError("No SEPA rainfall stations found inside the study-area discovery bounds.")
         return super().get_data(reference=reference)
 
     def retrieve_observations(self) -> dict[str, Any]:
@@ -227,6 +489,7 @@ class SEPARainfallAPISource(RealTimeAPISource):
                 },
             },
             "stations": stations,
+            "station_discovery": self.discovery_metadata,
             "prototype_note": (
                 "SEPA station observations are converted to a raster using simple inverse-distance weighting. "
                 "Use more stations or radar rainfall for a scientifically stronger rainfall field."
@@ -262,16 +525,16 @@ class SEPARainfallAPISource(RealTimeAPISource):
             "recent_total_mm": recent_total,
         }
 
-    def discover_stations(self, reference: RasterGrid, buffer_meters: float = 0.0) -> list[dict[str, Any]]:
+    def discover_stations(
+        self,
+        reference: RasterGrid,
+        buffer_meters: float = 0.0,
+        discovery_bounds: Any | None = None,
+    ) -> list[dict[str, Any]]:
         with urlopen(self.stations_url, timeout=self.timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8"))
 
-        bounds = BoundingBox(
-            left=reference.profile["transform"].c,
-            top=reference.profile["transform"].f,
-            right=reference.profile["transform"].c + reference.data.shape[1] * reference.profile["transform"].a,
-            bottom=reference.profile["transform"].f + reference.data.shape[0] * reference.profile["transform"].e,
-        )
+        bounds = _discovery_bounds_for_reference(reference, discovery_bounds)
         left = min(bounds.left, bounds.right) - buffer_meters
         right = max(bounds.left, bounds.right) + buffer_meters
         bottom = min(bounds.bottom, bounds.top) - buffer_meters
@@ -320,23 +583,7 @@ class SEPARainfallAPISource(RealTimeAPISource):
             grid[~valid_mask] = np.nan
             return grid
 
-        transform = reference.profile["transform"]
-        height, width = reference.data.shape
-        cols = np.arange(width, dtype="float32")
-        rows = np.arange(height, dtype="float32")
-        xs = transform.c + (cols + 0.5) * transform.a
-        ys = transform.f + (rows + 0.5) * transform.e
-        xx, yy = np.meshgrid(xs, ys)
-        total = np.zeros(reference.data.shape, dtype="float32")
-        weights = np.zeros(reference.data.shape, dtype="float32")
-
-        for sx, sy, value in zip(station_xs, station_ys, station_values):
-            dist2 = (xx - float(sx)) ** 2 + (yy - float(sy)) ** 2
-            weight = 1.0 / np.maximum(dist2, 25.0)
-            total += weight.astype("float32") * float(value)
-            weights += weight.astype("float32")
-
-        grid = total / np.maximum(weights, 1e-12)
+        grid = self._idw_grid(reference, station_xs, station_ys, station_values)
         grid[~valid_mask] = np.nan
         return grid.astype("float32")
 
@@ -345,17 +592,22 @@ class MetOfficeSiteForecastRainfallSource(RealTimeAPISource):
     """Met Office SiteSpecificForecast rainfall source sampled over the study area."""
 
     source_name = "metoffice_site_specific_forecast"
+    data_type = "forecast"
 
     def __init__(
         self,
         sample_points: list[tuple[float, float]] | None = None,
         timesteps: str = "hourly",
         horizon_hours: int = 6,
+        max_attempts: int = 2,
+        retry_backoff_seconds: float = 0.25,
     ):
         self.sample_points = sample_points
         self.timesteps = timesteps
         self.horizon_hours = horizon_hours
         self._reference: RasterGrid | None = None
+        self.max_attempts = max_attempts
+        self.retry_backoff_seconds = retry_backoff_seconds
 
     def get_data(self, reference: RasterGrid | None = None) -> RasterGrid:
         if reference is None:
@@ -381,7 +633,9 @@ class MetOfficeSiteForecastRainfallSource(RealTimeAPISource):
             ]
             hourly_amounts = hourly_amounts[: max(self.horizon_hours, 1)]
             values = [float(row["value"]) for row in hourly_amounts]
-            rainfall_mm_per_hour = max(values) if values else 0.0
+            if not values:
+                continue
+            rainfall_mm_per_hour = max(values)
             forecasts.append(
                 {
                     "latitude": lat,
@@ -392,6 +646,9 @@ class MetOfficeSiteForecastRainfallSource(RealTimeAPISource):
                     "values_used": hourly_amounts,
                 }
             )
+
+        if not forecasts:
+            raise ValueError("No Met Office precipitation forecast values were available for the study area samples.")
 
         return {
             "retrieved_at": datetime.now(timezone.utc).isoformat(),
@@ -415,21 +672,7 @@ class MetOfficeSiteForecastRainfallSource(RealTimeAPISource):
             grid[~valid_mask] = np.nan
             return grid
 
-        transform = reference.profile["transform"]
-        height, width = reference.data.shape
-        cols = np.arange(width, dtype="float32")
-        rows = np.arange(height, dtype="float32")
-        xs = transform.c + (cols + 0.5) * transform.a
-        ys = transform.f + (rows + 0.5) * transform.e
-        xx, yy = np.meshgrid(xs, ys)
-        total = np.zeros(reference.data.shape, dtype="float32")
-        weights = np.zeros(reference.data.shape, dtype="float32")
-        for sx, sy, value in zip(station_xs, station_ys, station_values):
-            dist2 = (xx - float(sx)) ** 2 + (yy - float(sy)) ** 2
-            weight = 1.0 / np.maximum(dist2, 25.0)
-            total += weight.astype("float32") * float(value)
-            weights += weight.astype("float32")
-        grid = total / np.maximum(weights, 1e-12)
+        grid = self._idw_grid(reference, station_xs, station_ys, station_values)
         grid[~valid_mask] = np.nan
         return grid.astype("float32")
 
@@ -462,19 +705,28 @@ class SEPAWaterLevelAPISource(RealTimeAPISource):
     """SEPA river/tidal level observations from Time Series value-layer API."""
 
     source_name = "sepa_river_tidal_level_api"
+    output_name = "water_level"
+    data_type = "observed"
 
     def __init__(
         self,
         timeseriesgroup_id: str = "41804",
         discovery_buffer_meters: float = 0.0,
+        discovery_bounds: Any | None = None,
         timeout_seconds: int = 30,
         risk_thresholds_m: list[float] | None = None,
+        max_attempts: int = 2,
+        retry_backoff_seconds: float = 0.25,
     ):
         self.timeseriesgroup_id = timeseriesgroup_id
         self.discovery_buffer_meters = discovery_buffer_meters
+        self.discovery_bounds = discovery_bounds
+        self.discovery_metadata = _discovery_metadata(discovery_bounds, discovery_buffer_meters)
         self.timeout_seconds = timeout_seconds
         self.risk_thresholds_m = risk_thresholds_m or [0.0, 1.0, 3.0, 5.0]
         self._reference: RasterGrid | None = None
+        self.max_attempts = max_attempts
+        self.retry_backoff_seconds = retry_backoff_seconds
 
     def get_data(self, reference: RasterGrid | None = None) -> RasterGrid:
         if reference is None:
@@ -495,7 +747,7 @@ class SEPAWaterLevelAPISource(RealTimeAPISource):
         with urlopen(url, timeout=self.timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8"))
 
-        bounds = self._reference_bounds(self._reference, self.discovery_buffer_meters)
+        bounds = self._reference_bounds(self._reference, self.discovery_buffer_meters, self.discovery_bounds)
         stations: list[dict[str, Any]] = []
         for feature in payload.get("features", []):
             try:
@@ -521,6 +773,7 @@ class SEPAWaterLevelAPISource(RealTimeAPISource):
         return {
             "retrieved_at": datetime.now(timezone.utc).isoformat(),
             "source_url": url,
+            "station_discovery": self.discovery_metadata,
             "stations": stations,
             "risk_thresholds_m": self.risk_thresholds_m,
             "prototype_note": (
@@ -533,9 +786,7 @@ class SEPAWaterLevelAPISource(RealTimeAPISource):
         stations = observations["stations"]
         valid_mask = np.isfinite(reference.data)
         if not stations:
-            grid = np.full(reference.data.shape, np.nan, dtype="float32")
-            grid[valid_mask] = 0.0
-            return grid
+            raise ValueError("No SEPA water-level stations found inside the study-area discovery bounds.")
 
         station_lons = [station["longitude"] for station in stations]
         station_lats = [station["latitude"] for station in stations]
@@ -548,36 +799,75 @@ class SEPAWaterLevelAPISource(RealTimeAPISource):
         grid[~valid_mask] = np.nan
         return grid
 
-    def _idw_grid(self, reference: RasterGrid, station_xs: list[float], station_ys: list[float], station_values: list[float]) -> np.ndarray:
-        transform = reference.profile["transform"]
-        height, width = reference.data.shape
-        cols = np.arange(width, dtype="float32")
-        rows = np.arange(height, dtype="float32")
-        xs = transform.c + (cols + 0.5) * transform.a
-        ys = transform.f + (rows + 0.5) * transform.e
-        xx, yy = np.meshgrid(xs, ys)
-        total = np.zeros(reference.data.shape, dtype="float32")
-        weights = np.zeros(reference.data.shape, dtype="float32")
-        for sx, sy, value in zip(station_xs, station_ys, station_values):
-            dist2 = (xx - float(sx)) ** 2 + (yy - float(sy)) ** 2
-            weight = 1.0 / np.maximum(dist2, 25.0)
-            total += weight.astype("float32") * float(value)
-            weights += weight.astype("float32")
-        return (total / np.maximum(weights, 1e-12)).astype("float32")
-
-    def _reference_bounds(self, reference: RasterGrid, buffer_meters: float) -> BoundingBox:
-        transform = reference.profile["transform"]
-        height, width = reference.data.shape
-        left = transform.c
-        top = transform.f
-        right = transform.c + width * transform.a
-        bottom = transform.f + height * transform.e
+    def _reference_bounds(self, reference: RasterGrid, buffer_meters: float, discovery_bounds: Any | None = None) -> BoundingBox:
+        bounds = _discovery_bounds_for_reference(reference, discovery_bounds)
+        left = bounds.left
+        top = bounds.top
+        right = bounds.right
+        bottom = bounds.bottom
         return BoundingBox(
             left=min(left, right) - buffer_meters,
             bottom=min(bottom, top) - buffer_meters,
             right=max(left, right) + buffer_meters,
             top=max(bottom, top) + buffer_meters,
         )
+
+
+def _reference_grid_bounds(reference: RasterGrid) -> BoundingBox:
+    transform = reference.profile["transform"]
+    height, width = reference.data.shape
+    return BoundingBox(
+        left=transform.c,
+        top=transform.f,
+        right=transform.c + width * transform.a,
+        bottom=transform.f + height * transform.e,
+    )
+
+
+def _discovery_bounds_for_reference(reference: RasterGrid, discovery_bounds: Any | None = None) -> BoundingBox:
+    if discovery_bounds is None:
+        return _reference_grid_bounds(reference)
+    if hasattr(discovery_bounds, "for_crs"):
+        return discovery_bounds.for_crs(reference.profile.get("crs"))
+    return discovery_bounds
+
+
+def _discovery_metadata(discovery_bounds: Any | None, buffer_meters: float) -> dict[str, Any]:
+    if discovery_bounds is None:
+        return {
+            "bounds_source": "reference_grid",
+            "additional_buffer_meters": buffer_meters,
+        }
+    bounds = getattr(discovery_bounds, "bounds", None)
+    return {
+        "bounds_source": getattr(discovery_bounds, "path", "explicit_bounds"),
+        "bounds_name": getattr(discovery_bounds, "name", None),
+        "bounds": None if bounds is None else {
+            "left": bounds.left,
+            "bottom": bounds.bottom,
+            "right": bounds.right,
+            "top": bounds.top,
+        },
+        "crs": None if getattr(discovery_bounds, "crs", None) is None else str(discovery_bounds.crs),
+        "additional_buffer_meters": buffer_meters,
+        "metadata": getattr(discovery_bounds, "metadata", {}),
+    }
+
+
+def _parse_iso_date(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
+def _coerce_date(value: str | date | None) -> date | None:
+    if value is None or isinstance(value, date):
+        return value
+    parsed = _parse_iso_date(value)
+    if parsed is None:
+        raise ValueError(f"Expected ISO date, got {value!r}")
+    return parsed
 
 
 def write_raster(path: str | Path, grid: RasterGrid, dtype: str = "float32") -> None:

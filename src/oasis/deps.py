@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from oasis.integrations.base import (
     GeocodingProvider,
@@ -15,6 +16,9 @@ from oasis.integrations.base import (
     RoutingProvider,
 )
 from oasis.models.map_conversation import MapEvent, MapSessionState
+
+if TYPE_CHECKING:
+    from oasis.integrations.core_analysis import CoreAnalystAnalysisService
 
 
 @dataclass
@@ -32,6 +36,7 @@ class MapAgentDeps:
     geocoder: GeocodingProvider
     nearby_places: NearbyPlaceProvider
     rainfall: LatestRainfallProvider
+    analysis: CoreAnalystAnalysisService
     current_hazard: CurrentHazardProvider
     routing: RoutingProvider
     route_hazard: RouteHazardProvider

@@ -7,6 +7,7 @@ from oasis.models.agent_output import AgentOutput
 from oasis.models.map_conversation import MapAgentAnswer
 from oasis.toolsets import (
     area_tools,
+    analysis_tools,
     hydrometry_tools,
     rainfall_tools,
     map_rainfall_tools,
@@ -65,6 +66,17 @@ the exact condition at the user's location or at the present instant. Never
 infer rainfall from a hazard class. Do not refresh or query the hazard raster
 for a rainfall-only question.
 
+For broader analytical requests involving exposure, vulnerability, prioritised
+areas, alternative decision weights, scenario comparison, or data readiness,
+use the Core Analyst analysis tools. Check data readiness first when real
+exposure or vulnerability data is required. Treat run IDs as server-side result
+handles. Never invent missing unit scores or datasets. Explain whether a result
+uses live observations, forecast data, static reference evidence, or explicit
+demo inputs, and preserve every scientific warning. Priority weights represent
+human preferences rather than objective truth.
+After an analysis tool succeeds, do not repeat the same analysis with identical
+inputs in the same turn; answer from its returned summary or reuse its run ID.
+
 For nearby-place requests, first obtain or reuse a centre location, then call
 search_nearby_places with generic OpenStreetMap tags. Examples include
 amenity=hospital, amenity=school, railway=station, and
@@ -104,5 +116,10 @@ spatial_agent = Agent(
     output_type=MapAgentAnswer,
     instructions=SPATIAL_AGENT_INSTRUCTIONS,
     retries=2,
-    toolsets=[map_tools, map_rainfall_tools, current_hazard_tools],
+    toolsets=[
+        map_tools,
+        map_rainfall_tools,
+        current_hazard_tools,
+        analysis_tools,
+    ],
 )

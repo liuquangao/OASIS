@@ -35,6 +35,10 @@ async def health() -> dict[str, str]:
         "semantic_model": (
             "configured" if settings.semantic_model_configured else "not_configured"
         ),
+        "core_analysis": "enabled",
+        "experimental_predictions": (
+            "enabled" if settings.enable_experimental_predictions else "disabled"
+        ),
     }
 
 

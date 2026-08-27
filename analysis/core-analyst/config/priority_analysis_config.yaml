@@ -1,0 +1,21 @@
+priority_analysis:
+  top_n: 10
+  scenarios:
+    life_safety:
+      description: Emphasise hazard severity, population exposure, and critical infrastructure.
+      weights:
+        hazard: 0.45
+        exposure: 0.40
+        vulnerability: 0.15
+    social_equity:
+      description: Emphasise vulnerability, population exposure, and hazard.
+      weights:
+        hazard: 0.25
+        exposure: 0.25
+        vulnerability: 0.50
+    economic_protection:
+      description: Emphasise building/economic exposure and hazard.
+      weights:
+        hazard: 0.40
+        exposure: 0.45
+        vulnerability: 0.15

@@ -40,6 +40,7 @@ async def test_map_rainfall_tool_uses_injected_provider_and_records_trace() -> N
         geocoder=None,  # type: ignore[arg-type]
         nearby_places=None,  # type: ignore[arg-type]
         rainfall=rainfall,  # type: ignore[arg-type]
+        analysis=None,  # type: ignore[arg-type]
         current_hazard=None,  # type: ignore[arg-type]
         routing=None,  # type: ignore[arg-type]
         route_hazard=None,  # type: ignore[arg-type]

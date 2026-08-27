@@ -32,6 +32,11 @@ class Settings(BaseModel):
     core_analyst_config_path: Path = Path(
         "analysis/core-analyst/config/pluvial_prediction_config.yaml"
     )
+    core_analyst_config_dir: Path = Path("analysis/core-analyst/config")
+    core_analyst_analysis_output_dir: Path = Path(
+        "analysis/core-analyst/outputs/agent"
+    )
+    enable_experimental_predictions: bool = False
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
     osrm_url: str = "https://router.project-osrm.org"
 
@@ -85,6 +90,22 @@ class Settings(BaseModel):
                     "analysis/core-analyst/config/pluvial_prediction_config.yaml",
                 )
             ),
+            core_analyst_config_dir=Path(
+                os.getenv(
+                    "OASIS_CORE_ANALYST_CONFIG_DIR",
+                    "analysis/core-analyst/config",
+                )
+            ),
+            core_analyst_analysis_output_dir=Path(
+                os.getenv(
+                    "OASIS_CORE_ANALYST_ANALYSIS_OUTPUT_DIR",
+                    "analysis/core-analyst/outputs/agent",
+                )
+            ),
+            enable_experimental_predictions=os.getenv(
+                "OASIS_ENABLE_EXPERIMENTAL_PREDICTIONS", "false"
+            ).strip().lower()
+            in {"1", "true", "yes", "on"},
             nominatim_url=os.getenv(
                 "OASIS_NOMINATIM_URL",
                 "https://nominatim.openstreetmap.org/search",

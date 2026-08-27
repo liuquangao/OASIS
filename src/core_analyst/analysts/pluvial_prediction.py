@@ -15,6 +15,7 @@ from core_analyst.tools.factor_analyzers import (
     RainfallAnalyzer,
     SlopeRiskAnalyzer,
 )
+from core_analyst.tools.random_forest_prediction import RandomForestRiskPredictor
 from core_analyst.tools.weighted_overlay import WeightedOverlayAnalyzer
 from core_analyst.validators.raster_validator import RasterValidator
 
@@ -70,15 +71,14 @@ class PluvialPredictionAnalyst:
             },
             self.config["current_weights"],
         )
-        interaction = np.clip(current * np.maximum(observed_rainfall_risk, forecast_rainfall_risk), 0.0, 1.0)
-        future = self._weighted_sum(
-            {
-                "current_hazard": current,
-                "forecast_rainfall": forecast_rainfall_risk,
-                "interaction": interaction,
-            },
-            self.config["prediction_weights"],
+        future_result = self._predict_future_with_random_forest(
+            static_factors,
+            static_susceptibility,
+            observed_rainfall_risk,
+            forecast_rainfall_risk,
+            current,
         )
+        future = future_result.risk
 
         baseline_metadata = self._read_baseline_metadata(baseline_sources, reference)
         outputs = self._write_outputs(
@@ -97,6 +97,7 @@ class PluvialPredictionAnalyst:
             baseline_metadata,
             outputs,
             prediction_horizon_hours,
+            future_result.metadata,
         )
         metadata_path = self.output_dir / "analysis_metadata.json"
         metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -106,14 +107,36 @@ class PluvialPredictionAnalyst:
         return {"metadata": metadata, "output_paths": outputs}
 
     def _weighted_sum(self, layers: dict[str, np.ndarray], weights: dict[str, float]) -> np.ndarray:
-        total = sum(float(weights[name]) for name in layers)
-        result = np.zeros_like(next(iter(layers.values())), dtype="float32")
-        invalid = np.zeros_like(result, dtype=bool)
-        for name, layer in layers.items():
-            invalid |= ~np.isfinite(layer)
-            result += layer.astype("float32") * (float(weights[name]) / total)
-        result[invalid] = np.nan
-        return np.clip(result, 0.0, 1.0).astype("float32")
+        return self.overlay.analyze(layers, weights)
+
+    def _predict_future_with_random_forest(
+        self,
+        static_factors: dict[str, np.ndarray],
+        static_susceptibility: np.ndarray,
+        observed_rainfall_risk: np.ndarray,
+        forecast_rainfall_risk: np.ndarray,
+        current: np.ndarray,
+    ):
+        observed_interaction = np.clip(current * observed_rainfall_risk, 0.0, 1.0)
+        forecast_interaction = np.clip(current * forecast_rainfall_risk, 0.0, 1.0)
+        training_features = {
+            **static_factors,
+            "static_susceptibility": static_susceptibility,
+            "rainfall_risk": observed_rainfall_risk,
+            "current_hazard": current,
+            "rainfall_change": np.zeros_like(current, dtype="float32"),
+            "hazard_rainfall_interaction": observed_interaction,
+        }
+        prediction_features = {
+            **static_factors,
+            "static_susceptibility": static_susceptibility,
+            "rainfall_risk": forecast_rainfall_risk,
+            "current_hazard": current,
+            "rainfall_change": (forecast_rainfall_risk - observed_rainfall_risk).astype("float32"),
+            "hazard_rainfall_interaction": forecast_interaction,
+        }
+        predictor = RandomForestRiskPredictor(**self.config.get("random_forest", {}))
+        return predictor.predict(training_features, current, prediction_features)
 
     def _read_baseline_metadata(
         self,
@@ -180,10 +203,11 @@ class PluvialPredictionAnalyst:
         baseline_metadata: dict[str, Any],
         outputs: dict[str, Any],
         prediction_horizon_hours: int | None,
+        future_model_metadata: dict[str, Any],
     ) -> dict[str, Any]:
         return {
             "hazard_type": "pluvial",
-            "analysis_method": "state_aware_spatiotemporal_prediction_mvp",
+            "analysis_method": "state_aware_random_forest_prediction_mvp",
             "risk_framework": {
                 "static_baseline": [
                     "DEM",
@@ -206,16 +230,18 @@ class PluvialPredictionAnalyst:
             "observed_rainfall_source": {"source_type": observed.source_type, "metadata": observed.metadata},
             "forecast_rainfall_source": {"source_type": forecast.source_type, "metadata": forecast.metadata},
             "baseline_reference_sources": baseline_metadata,
-            "weights": {
+            "current_hazard_weights": {
                 "static_weights": self.config["static_weights"],
                 "current_weights": self.config["current_weights"],
-                "prediction_weights": self.config["prediction_weights"],
             },
+            "future_prediction_model": future_model_metadata,
             "classification": self.config["classification"],
             "outputs": outputs,
             "prototype_limitation": (
-                "MVP prediction model. Radar observations, river observations/forecasts, drainage capacity, "
-                "and formal hydrodynamic routing are placeholders until data are available."
+                "MVP random forest prediction model trained from the current hazard proxy because labelled "
+                "historical inundation outcomes are not yet wired in. Radar observations, river "
+                "observations/forecasts, drainage capacity, and formal hydrodynamic routing remain "
+                "placeholders until data are available."
             ),
         }
 
@@ -243,13 +269,20 @@ H(t0) = 0.70 * S_static + 0.30 * R_obs
 ## Predicted Hazard
 
 ```text
-R_forecast   = Met Office forecast rainfall risk
-Interaction  = H(t0) * max(R_obs, R_forecast)
+Random forest training target:
+  y = H(t0)
 
-H(t0+delta) =
-  0.45 * H(t0)
-+ 0.35 * R_forecast
-+ 0.20 * Interaction
+Training features:
+  elevation, slope, flow accumulation, imperviousness, S_static,
+  observed rainfall risk, H(t0), rainfall change = 0,
+  H(t0) * observed rainfall risk
+
+Prediction features:
+  same static and current-state features, but rainfall risk is replaced by
+  Met Office forecast rainfall risk, rainfall change is R_forecast - R_obs,
+  and the interaction is H(t0) * R_forecast.
+
+H(t0+delta) = RandomForestRegressor(prediction features)
 ```
 
 SEPA flood maps are static/baseline reference layers for calibration/validation, not dynamic rainfall forcing.

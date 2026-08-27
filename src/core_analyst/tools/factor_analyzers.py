@@ -34,7 +34,18 @@ class ImperviousnessAnalyzer:
         self.normalizer = normalizer or RasterNormalizer()
 
     def analyze(self, imperviousness: np.ndarray) -> np.ndarray:
-        return self.normalizer.minmax(imperviousness)
+        """Return the normalized imperviousness proxy without min-max rescaling.
+
+        The input is expected to already be a [0, 1] imperviousness-based
+        runoff susceptibility proxy. Values are heuristic relative scores,
+        not measured percentages of physically impervious surface.
+        """
+
+        data = imperviousness.astype("float32")
+        finite = np.isfinite(data)
+        analyzed = np.full_like(data, np.nan, dtype="float32")
+        analyzed[finite] = np.clip(data[finite], 0.0, 1.0)
+        return analyzed
 
 
 class RainfallAnalyzer:

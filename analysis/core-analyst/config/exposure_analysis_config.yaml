@@ -1,0 +1,9 @@
+exposure:
+  hazard_threshold: 2
+  population_field: population
+  critical_type_field: type
+  required_facility_types:
+    - hospital
+    - care_home
+    - school
+    - emergency_service

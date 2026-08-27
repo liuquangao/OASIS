@@ -16,6 +16,13 @@ prediction_weights:
   forecast_rainfall: 0.35
   interaction: 0.20
 
+random_forest:
+  n_estimators: 200
+  max_depth: 12
+  min_samples_leaf: 5
+  random_state: 42
+  max_training_samples: 50000
+
 classification:
   low: [0.0, 0.55]
   medium: [0.55, 0.80]

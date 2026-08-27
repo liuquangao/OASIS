@@ -8,6 +8,7 @@ import numpy as np
 
 from core_analyst.data_sources import DataSource, RasterGrid, write_raster
 from core_analyst.tools.classification import HazardClassifier
+from core_analyst.tools.weighted_overlay import WeightedOverlayAnalyzer
 
 
 class TemporalReferenceFloodAnalyst:
@@ -23,33 +24,63 @@ class TemporalReferenceFloodAnalyst:
         self.config = config
         self.output_dir = Path(output_dir)
         self.classifier = HazardClassifier()
+        self.overlay = WeightedOverlayAnalyzer()
 
     def run(
         self,
         dem_source: DataSource,
-        baseline_current_source: DataSource,
-        baseline_future_source: DataSource,
+        baseline_high_source: DataSource,
+        baseline_medium_source: DataSource,
+        baseline_low_source: DataSource,
+        static_forcings: dict[str, DataSource] | None,
         current_forcings: dict[str, DataSource],
         future_forcings: dict[str, DataSource],
         unavailable: dict[str, str] | None = None,
+        dynamic_evidence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         dem = dem_source.get_data()
-        current_baseline = self._reference_to_index(baseline_current_source.get_data(reference=dem).data, np.isfinite(dem.data))
-        future_baseline = self._reference_to_index(baseline_future_source.get_data(reference=dem).data, np.isfinite(dem.data))
+        valid_mask = np.isfinite(dem.data)
+        baseline_high = self._reference_to_index(baseline_high_source.get_data(reference=dem).data, valid_mask)
+        baseline_medium = self._reference_to_index(baseline_medium_source.get_data(reference=dem).data, valid_mask)
+        baseline_low = self._reference_to_index(baseline_low_source.get_data(reference=dem).data, valid_mask)
 
+        static_layers, static_meta = self._read_forcings(static_forcings or {}, dem)
         current_layers, current_meta = self._read_forcings(current_forcings, dem)
         future_layers, future_meta = self._read_forcings(future_forcings, dem)
 
-        current_hazard = self._combine({"baseline": current_baseline, **current_layers}, self.config["current_weights"])
-        future_hazard = self._combine({"baseline": future_baseline, "current_state": current_hazard, **future_layers}, self.config["future_weights"])
+        current_hazard = self._combine(
+            {
+                "baseline_high": baseline_high,
+                "baseline_medium": baseline_medium,
+                **static_layers,
+                **current_layers,
+            },
+            self.config["current_weights"],
+        )
+        future_hazard = self._combine(
+            {
+                "baseline_low": baseline_low,
+                "baseline_medium": baseline_medium,
+                "current_state": current_hazard,
+                **static_layers,
+                **future_layers,
+            },
+            self.config["future_weights"],
+        )
 
         outputs = self._write_outputs(dem, current_hazard, future_hazard)
         metadata = {
             "hazard_type": self.hazard_type,
             "analysis_method": "baseline_plus_temporal_forcing_mvp",
-            "static_baseline": "SEPA flood maps reclassified to hazard index",
+            "static_baseline": {
+                "baseline_high": "SEPA high-likelihood flood map, frequent baseline.",
+                "baseline_medium": "SEPA medium-likelihood flood map, central planning/reference baseline.",
+                "baseline_low": "SEPA low-likelihood flood map, rare/extreme envelope.",
+            },
+            "static_forcings": static_meta,
             "current_forcings": current_meta,
             "future_forcings": future_meta,
+            "dynamic_evidence": dynamic_evidence or {},
             "unavailable_inputs": unavailable or {},
             "weights": {
                 "current_weights": self.config["current_weights"],
@@ -90,19 +121,7 @@ class TemporalReferenceFloodAnalyst:
         return hazard
 
     def _combine(self, layers: dict[str, np.ndarray], weights: dict[str, float]) -> np.ndarray:
-        total = sum(float(weight) for name, weight in weights.items() if name in layers)
-        if total <= 0:
-            raise ValueError("No available layers with positive weights.")
-        result = np.zeros_like(next(iter(layers.values())), dtype="float32")
-        invalid = np.zeros_like(result, dtype=bool)
-        for name, weight in weights.items():
-            if name not in layers:
-                continue
-            layer = layers[name]
-            invalid |= ~np.isfinite(layer)
-            result += layer.astype("float32") * (float(weight) / total)
-        result[invalid] = np.nan
-        return np.clip(result, 0.0, 1.0).astype("float32")
+        return self.overlay.analyze(layers, weights, require_all_weights=False)
 
     def _write_outputs(self, reference: RasterGrid, current: np.ndarray, future: np.ndarray) -> dict[str, str]:
         self.output_dir.mkdir(parents=True, exist_ok=True)

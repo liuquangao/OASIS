@@ -4,12 +4,16 @@ classification:
   high: [0.80, 1.0]
 
 current_weights:
-  baseline: 0.65
-  river_level_observation: 0.25
+  baseline_high: 0.30
+  baseline_medium: 0.35
+  river_network: 0.10
+  river_level_observation: 0.15
   rainfall_observation: 0.10
 
 future_weights:
-  baseline: 0.55
-  current_state: 0.25
+  baseline_low: 0.45
+  baseline_medium: 0.15
+  river_network: 0.05
+  current_state: 0.15
   rainfall_forecast: 0.20
   river_forecast: 0.00

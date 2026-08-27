@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "oasis-geoagent"
 version = "0.1.0"
-description = "Minimal GeoAI agent for SEPA rainfall and river-level observations."
+description = "GeoAI agent for live observations, WebGIS interaction, and deterministic flood-risk analysis."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -19,6 +19,10 @@ dependencies = [
   "rasterio>=1.4,<2",
   "numpy>=2,<3",
   "PyYAML>=6,<7",
+  "shapely>=2,<3",
+  "scikit-learn>=1.4,<2",
+  "openpyxl>=3.1,<4",
+  "matplotlib>=3.8,<4",
 ]
 
 [project.optional-dependencies]

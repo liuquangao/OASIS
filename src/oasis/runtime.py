@@ -13,6 +13,7 @@ import json
 from oasis.agent import flood_agent, spatial_agent
 from oasis.deps import Deps, MapAgentDeps
 from oasis.integrations.current_hazard import CoreAnalystCurrentHazard
+from oasis.integrations.core_analysis import CoreAnalystAnalysisService
 from oasis.integrations.openstreetmap import OpenStreetMapClient
 from oasis.integrations.osrm import OsrmRoutingClient
 from oasis.integrations.raster_route_hazard import RasterRouteHazardAnalyzer
@@ -116,6 +117,14 @@ async def run_spatial_agent(
             wms_url=settings.geoserver_wms_url,
             layer=settings.current_hazard_layer,
         )
+        analysis = CoreAnalystAnalysisService(
+            input_dir=settings.core_analyst_input_dir,
+            output_dir=settings.core_analyst_analysis_output_dir,
+            config_dir=settings.core_analyst_config_dir,
+            current_hazard=current_hazard,
+            current_hazard_raster_path=settings.current_hazard_raster_path,
+            enable_experimental_predictions=settings.enable_experimental_predictions,
+        )
         routing = OsrmRoutingClient(client, base_url=settings.osrm_url)
         route_hazard = RasterRouteHazardAnalyzer(settings.current_hazard_raster_path)
         sepa_timeseries = SepaTimeSeriesClient(client)
@@ -123,6 +132,7 @@ async def run_spatial_agent(
             geocoder=osm,
             nearby_places=osm,
             rainfall=sepa_timeseries,
+            analysis=analysis,
             current_hazard=current_hazard,
             routing=routing,
             route_hazard=route_hazard,

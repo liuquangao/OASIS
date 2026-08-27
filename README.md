@@ -1,7 +1,7 @@
 # OASIS GeoAgent
 
-A minimal, model-portable GeoAI agent that resolves Glasgow and retrieves recent
-rainfall and river-level observations from SEPA.
+A model-portable GeoAI agent that combines Glasgow WebGIS interaction, recent
+SEPA observations, and deterministic Core Analyst flood-risk workflows.
 
 The complete application now lives in this directory. The interactive map is
 `webgis/frontend/index.html`; its browser logic and styles are
@@ -43,6 +43,9 @@ services used by the PydanticAI agent.
 - Query the generated 5 m raster and display it through GeoServer.
 - Find nearby facilities and plan, analyse, rank, and display driving routes.
 - Produce typed provenance, warnings, and structured agent output.
+- Inspect machine-readable data readiness without fabricating unavailable data.
+- Run pluvial, fluvial, coastal, exposure, vulnerability, priority, scenario,
+  sensitivity, and combined-hazard analysis through controlled Agent tools.
 
 The observation Agent exposes three tools:
 
@@ -50,14 +53,23 @@ The observation Agent exposes three tools:
 - `get_recent_water_levels_near_location`
 - `get_recent_rainfall_near_location`
 
-The browser Spatial Agent exposes fourteen composable tools. Nine cover
+The browser Spatial Agent exposes twenty-five composable tools. Nine cover
 geocoding, nearby-place search, route retrieval and analysis, route ranking,
 map display, and session cleanup. One retrieves recent observations from nearby
 SEPA rain gauges. Four hazard tools expose snapshot status, whole-area
-recalculation, point lookup, and layer visibility. Every point and route risk
-analysis uses this same latest calculated raster. Core Analyst source is under
+recalculation, point lookup, and layer visibility. Eleven extended Core Analyst
+tools cover data readiness, controlled input preparation, pluvial/fluvial/coastal
+hazard analysis, combined hazard, coastal dynamic evidence, exposure,
+vulnerability, explicit priority ranking, scenario comparison, and sensitivity.
+Every point and route risk analysis uses the same latest calculated raster.
+Core Analyst source is under
 `src/core_analyst/`; its local geodatabase inputs and generated rasters are
 under `analysis/core-analyst/` and are intentionally ignored by Git.
+
+Extended analysis results are persisted under
+`analysis/core-analyst/outputs/agent/runs/<run_id>/result.json`. The Agent sees a
+compact typed summary and uses `run_id` to connect dependent analyses; it cannot
+choose arbitrary server filesystem paths.
 
 The entire application preserves Core Analyst's native class convention:
 `1 = Low`, `2 = Medium`, `3 = High`, and `0 = NoData`.
@@ -66,7 +78,11 @@ The current version does **not** claim to issue an operational flood warning.
 Rainfall and river-level observations are returned with provenance and quality
 warnings for human interpretation. The current-hazard calculation is an MVP
 prototype, not a forecast or official warning; its weights and thresholds need
-scientific validation.
+scientific validation. Priority weights must be explicit and are treated as
+human value judgements. The random-forest future-pluvial component remains an
+experimental proxy and must not be presented as a validated forecast. Exposure
+and vulnerability analyses return `partial` or `unavailable` when verified
+population, building, facility, geography, Census, or SIMD inputs are missing.
 
 ## Setup
 
