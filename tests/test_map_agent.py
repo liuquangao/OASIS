@@ -1,0 +1,115 @@
+from fastapi.testclient import TestClient
+import httpx
+from pydantic_ai.models.test import TestModel
+from pydantic import SecretStr
+
+from oasis.agent import spatial_agent
+from oasis.api import app
+from oasis.models.map_conversation import MapSessionState, RememberedLocation
+from oasis.runtime import _select_model, run_spatial_agent
+from oasis.settings import Settings
+
+
+def test_spatial_agent_exists() -> None:
+    assert spatial_agent is not None
+
+
+async def test_spatial_agent_returns_updated_session_envelope() -> None:
+    state = MapSessionState(
+        locations=[
+            RememberedLocation(
+                id="location-1",
+                label="G2 8JB",
+                search_query="G2 8JB",
+                latitude=55.857087,
+                longitude=-4.261645,
+                class_value=3,
+                risk_level="low",
+                risk_label="Low",
+            )
+        ],
+        active_location_id="location-1",
+        hazard_layer_visible=True,
+        last_task="risk",
+    )
+    model = TestModel(
+        call_tools=[],
+        custom_output_args={"message": "The existing point remains available."},
+    )
+    output = await run_spatial_agent("Summarise it", state, model=model)
+    assert output.message == "The existing point remains available."
+    assert output.state.active_location_id == "location-1"
+    assert output.events == []
+
+
+def test_api_requires_a_live_semantic_model(monkeypatch) -> None:
+    monkeypatch.setenv("OASIS_MODEL", "test")
+    response = TestClient(app).post(
+        "/agent/turn",
+        json={
+            "prompt": "格拉斯哥计算机学院",
+            "state": {
+                "locations": [],
+                "visible_location_ids": [],
+                "active_location_id": None,
+                "hazard_layer_visible": False,
+                "last_task": None,
+            },
+        },
+    )
+    assert response.status_code == 503
+
+
+def test_api_allows_the_local_file_frontend_origin() -> None:
+    response = TestClient(app).options(
+        "/agent/turn",
+        headers={
+            "Origin": "null",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "null"
+
+
+def test_api_identifies_an_unavailable_hazard_service(monkeypatch) -> None:
+    async def fail_on_hazard(*args, **kwargs):
+        request = httpx.Request(
+            "GET",
+            "http://127.0.0.1:8080/geoserver/glasgow_flood/wms",
+        )
+        raise httpx.ConnectError("GeoServer is unavailable", request=request)
+
+    monkeypatch.setenv("OASIS_MODEL", "mimo-v2.5-pro")
+    monkeypatch.setenv("OASIS_MODEL_PROVIDER", "mimo")
+    monkeypatch.setenv("MIMO_API_KEY", "test-key")
+    monkeypatch.setattr("oasis.api.run_spatial_agent", fail_on_hazard)
+    response = TestClient(app).post(
+        "/agent/turn",
+        json={"prompt": "Flood risk at G2 8JB"},
+    )
+    assert response.status_code == 502
+    assert response.json()["detail"] == "The hazard map service is unavailable."
+
+
+def test_mimo_settings_build_an_openai_compatible_model() -> None:
+    settings = Settings(
+        model="mimo-v2.5-pro",
+        model_provider="mimo",
+        mimo_api_key=SecretStr("test-key"),
+        mimo_base_url="https://token-plan-cn.xiaomimimo.com/v1",
+    )
+    model = _select_model(None, settings)
+    assert model.model_name == "mimo-v2.5-pro"
+    assert settings.semantic_model_configured is True
+
+
+def test_mimo_settings_require_a_key() -> None:
+    settings = Settings(model="mimo-v2.5-pro", model_provider="mimo")
+    try:
+        _select_model(None, settings)
+    except RuntimeError as error:
+        assert "MIMO_API_KEY" in str(error)
+    else:
+        raise AssertionError("MiMo configuration accepted a missing API key")

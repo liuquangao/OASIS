@@ -1,0 +1,16 @@
+classification:
+  low: [0.0, 0.33]
+  medium: [0.33, 0.80]
+  high: [0.80, 1.0]
+
+current_weights:
+  baseline: 0.80
+  tide_sea_level_observation: 0.20
+  storm_surge_observation: 0.00
+
+future_weights:
+  baseline: 0.75
+  current_state: 0.15
+  tide_sea_level_forecast: 0.00
+  storm_surge_forecast: 0.00
+  rainfall_forecast: 0.10

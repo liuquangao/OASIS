@@ -1,0 +1,19 @@
+hazard_type: pluvial_realtime_prototype
+analysis_method: weighted_overlay
+
+weights:
+  elevation: 0.15
+  slope: 0.15
+  flow_accumulation: 0.15
+  imperviousness: 0.35
+  rainfall: 0.20
+
+classification:
+  low: [0.0, 0.55]
+  medium: [0.55, 0.80]
+  high: [0.80, 1.0]
+
+rainfall_thresholds: [0, 5, 15, 30]
+
+demo:
+  rainfall_multiplier: 1.0

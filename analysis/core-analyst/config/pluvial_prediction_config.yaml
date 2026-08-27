@@ -1,0 +1,24 @@
+hazard_type: pluvial_prediction
+analysis_method: state_aware_prediction
+
+static_weights:
+  elevation: 0.25
+  slope: 0.20
+  flow_accumulation: 0.20
+  imperviousness: 0.35
+
+current_weights:
+  static_susceptibility: 0.70
+  observed_rainfall: 0.30
+
+prediction_weights:
+  current_hazard: 0.45
+  forecast_rainfall: 0.35
+  interaction: 0.20
+
+classification:
+  low: [0.0, 0.55]
+  medium: [0.55, 0.80]
+  high: [0.80, 1.0]
+
+rainfall_thresholds: [0, 5, 15, 30]
