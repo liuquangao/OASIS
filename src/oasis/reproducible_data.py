@@ -20,14 +20,21 @@ from rasterio.warp import reproject
 import shapefile
 from shapely.geometry import mapping, shape
 
-from oasis.data_bootstrap import SEPA_LAYERS
-
+from core_analyst.official_facilities import prepare_official_facilities
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_LOCK_PATH = PROJECT_ROOT / "data" / "glasgow-5m-sources.json"
 STUDY_AREA_PATH = PROJECT_ROOT / "data" / "glasgow-city-1km-buffer.geojson"
 DTM_EDGE_PATCH_PATH = PROJECT_ROOT / "data" / "glasgow-dtm-edge-patch.csv"
 NRFA_ROOT = "CSV-20260825T012052Z-1-001"
+SEPA_LAYERS = {
+    "SEPA_River_High_Flood_5m_.tif": 0,
+    "SEPA_River_Medium_Flood_5.tif": 1,
+    "SEPA_River_Low_Flood_5m_r.tif": 2,
+    "SEPA_Coastal_High_Flood_5.tif": 6,
+    "SEPA_Coastal_Medium_Flood.tif": 7,
+    "SEPA_Coastal_Low_Flood_5m.tif": 8,
+}
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,46 @@ class ExactDataResult:
     downloaded_bytes: int
     generated_files: list[str]
     notes: list[str]
+
+
+def prepare_risk_inputs(
+    input_dir: str | Path,
+    *,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+    user_agent: str = "oasis-geoagent/0.1",
+) -> dict:
+    """Download locked social-risk sources and build deterministic adapters."""
+
+    lock = load_source_lock()
+    input_dir = Path(input_dir).resolve()
+    cache_dir = Path(cache_dir).resolve() if cache_dir else input_dir.parent / ".oasis-data-cache"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    with httpx.Client(
+        follow_redirects=True,
+        timeout=httpx.Timeout(600.0),
+        headers={"User-Agent": user_agent},
+    ) as client:
+        downloaded, raw = _download_risk_sources(client, input_dir, cache_dir, lock, force)
+    facilities_dir = input_dir / "processed" / "facilities"
+    facility_result = prepare_official_facilities(
+        postcode_directory=raw["postcode_grid_references"],
+        facility_sources={name: raw[name] for name in ("hospital", "school", "care_home", "emergency_service")},
+        study_area=STUDY_AREA_PATH,
+        output_path=facilities_dir / "critical_services.geojson",
+        quality_report_path=facilities_dir / "facility_data_quality.json",
+    )
+    from core_analyst.real_data_inputs import prepare_real_exposure_vulnerability_inputs
+
+    prepared = prepare_real_exposure_vulnerability_inputs(input_dir)
+    return {
+        "status": "success" if not prepared.unavailable and facility_result["feature_count"] else "partial",
+        "downloaded_bytes": downloaded,
+        "prepared": asdict(prepared),
+        "facilities": facility_result,
+        "source_lock": str(SOURCE_LOCK_PATH),
+    }
 
 
 def load_source_lock() -> dict:
@@ -113,12 +160,24 @@ def rebuild_glasgow_5m(
         downloaded += sepa_bytes
         national_bytes = _download_national(client, input_dir, cache_dir, lock, force)
         downloaded += national_bytes
+        risk_bytes, _ = _download_risk_sources(client, input_dir, cache_dir, lock, force)
+        downloaded += risk_bytes
         nrfa_bytes = _download_nrfa(client, input_dir, lock, force)
         downloaded += nrfa_bytes
 
     _write_study_area(input_dir)
     _install_os_buildings(os_roots["OpenMapLocal"], input_dir)
     generated = _build_rasters(input_dir, lidar, lcm_path, os_roots, sepa, lock)
+
+    risk_raw = _risk_source_paths(cache_dir)
+    facilities_dir = input_dir / "processed" / "facilities"
+    prepare_official_facilities(
+        postcode_directory=risk_raw["postcode_grid_references"],
+        facility_sources={name: risk_raw[name] for name in ("hospital", "school", "care_home", "emergency_service")},
+        study_area=STUDY_AREA_PATH,
+        output_path=facilities_dir / "critical_services.geojson",
+        quality_report_path=facilities_dir / "facility_data_quality.json",
+    )
 
     from core_analyst.real_data_inputs import prepare_real_exposure_vulnerability_inputs
 
@@ -210,6 +269,10 @@ def verify_glasgow_5m(input_dir: str | Path) -> dict:
         input_dir / "Datazone2022" / "Table UV102b - Age (20) by sex.csv",
         input_dir / "Datazone2022" / "Table UV405 - Car or van availability.csv",
         input_dir / "SIMD+2020v2+-+indicators.xlsx",
+        input_dir / "DataZoneBoundaries2011" / "SG_DataZone_Bdry_2011.shp",
+        input_dir / "processed" / "data_zone" / "glasgow_data_zones_2022_enriched_simd.geojson",
+        input_dir / "processed" / "facilities" / "critical_services.geojson",
+        input_dir / "processed" / "facilities" / "facility_data_quality.json",
         input_dir / NRFA_ROOT / "CSV" / "Gauged_daily_flow.zip",
         input_dir / NRFA_ROOT / "CSV" / "Rainfall.zip",
         input_dir / "OASIS_Polygon" / "OASIS_Polygon" / "Glasgow_City_1km_buffer.shp",
@@ -217,6 +280,14 @@ def verify_glasgow_5m(input_dir: str | Path) -> dict:
     for path in required:
         if not path.exists():
             errors.append(f"missing {path}")
+    for path, minimum in (
+        (input_dir / "processed" / "data_zone" / "glasgow_data_zones_2022_enriched_simd.geojson", 1),
+        (input_dir / "processed" / "facilities" / "critical_services.geojson", 4),
+    ):
+        if path.exists():
+            feature_count = len(json.loads(path.read_text(encoding="utf-8")).get("features", []))
+            if feature_count < minimum:
+                errors.append(f"{path}: only {feature_count} features")
     return {"ok": not errors, "profile": lock["profile"], "checked": checked, "errors": errors}
 
 
@@ -343,6 +414,55 @@ def _download_national(client: httpx.Client, input_dir: Path, cache: Path, lock:
     population = input_dir / "Output Area 2022 Total Population.csv"
     total += _download(client, sources["oa_population_2022"]["url"], population, force=force, expected_size=sources["oa_population_2022"]["bytes"])
     return total
+
+
+def _download_risk_sources(
+    client: httpx.Client,
+    input_dir: Path,
+    cache: Path,
+    lock: dict,
+    force: bool,
+) -> tuple[int, dict[str, Path]]:
+    total = 0
+    data_zone_spec = lock["sources"]["data_zone_boundaries_2011"]
+    data_zone_archive = cache / "national" / "SG_DataZoneBdry_2011.zip"
+    total += _download(
+        client,
+        data_zone_spec["url"],
+        data_zone_archive,
+        force=force,
+        expected_size=data_zone_spec["bytes"],
+        expected_sha256=data_zone_spec["sha256"],
+        headers={"Referer": "https://www.data.gov.uk/", "User-Agent": "Mozilla/5.0"},
+    )
+    data_zone_root = input_dir / "DataZoneBoundaries2011"
+    if force or not data_zone_root.exists():
+        if data_zone_root.exists():
+            shutil.rmtree(data_zone_root)
+        _extract_zip(data_zone_archive, data_zone_root)
+
+    paths = _risk_source_paths(cache)
+    for name, spec in lock["sources"]["official_facilities"].items():
+        total += _download(
+            client,
+            spec["url"],
+            paths[name],
+            force=force,
+            expected_size=spec["bytes"],
+            expected_sha256=spec["sha256"],
+        )
+    return total, paths
+
+
+def _risk_source_paths(cache: Path) -> dict[str, Path]:
+    root = cache / "official-risk"
+    return {
+        "postcode_grid_references": root / "spd_postcode_index_26_2.zip",
+        "hospital": root / "hospitals_2026-08.csv",
+        "school": root / "schools_2026-01.xlsx",
+        "care_home": root / "care_inspectorate_2026-07.csv",
+        "emergency_service": root / "fire_stations_2025-26.xlsx",
+    }
 
 
 def _download_nrfa(client: httpx.Client, input_dir: Path, lock: dict, force: bool) -> int:
@@ -563,6 +683,7 @@ def _download(
     force: bool,
     expected_size: int | None = None,
     expected_etag: str | None = None,
+    expected_sha256: str | None = None,
     headers: dict[str, str] | None = None,
 ) -> int:
     if path.exists() and not force:
@@ -572,6 +693,8 @@ def _download(
             remote_etag = client.head(url, headers=headers).headers.get("etag", "").strip('"')
             if remote_etag != expected_etag:
                 raise ValueError(f"Remote file ETag no longer matches the source lock: {url}")
+        if expected_sha256 is not None and _hash(path, "sha256") != expected_sha256:
+            raise ValueError(f"Cached file checksum mismatch: {path}")
         return 0
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".part")
@@ -587,6 +710,9 @@ def _download(
     if expected_size is not None and size != expected_size:
         temporary.unlink()
         raise ValueError(f"Downloaded file size mismatch: {url}")
+    if expected_sha256 is not None and _hash(temporary, "sha256") != expected_sha256:
+        temporary.unlink()
+        raise ValueError(f"Downloaded file checksum mismatch: {url}")
     temporary.replace(path)
     return size
 

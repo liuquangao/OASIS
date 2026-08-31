@@ -12,8 +12,10 @@ from typing import Any
 from uuid import uuid4
 
 import numpy as np
+import rasterio
 
-from core_analyst.data_registry import build_core_data_registry
+from core_analyst.analysts.data_zone_assessment import run_data_zone_flood_priority_assessment
+from core_analyst.data_registry import build_core_data_registry, write_core_data_registry
 from core_analyst.workflows.generalized_analysis import plan_generalized_analysis
 from core_analyst.workflows.extensible_hazard import run_extensible_hazard
 from core_analyst.coastal_dynamic import (
@@ -30,6 +32,7 @@ from core_analyst.tools.agent_tools import (
     compare_scenarios,
     run_exposure_analysis,
     run_hazard_analysis,
+    run_hazard_scenarios,
     run_priority_analysis,
     run_sensitivity_analysis,
     run_vulnerability_analysis,
@@ -452,17 +455,16 @@ class CoreAnalystAnalysisService:
         root.mkdir(parents=True, exist_ok=False)
         hazard_results: dict[str, dict[str, Any]] = {}
         for hazard_type in ("pluvial", "fluvial", "coastal"):
-            for scenario in ("current", "future"):
-                result = await asyncio.to_thread(
-                    run_hazard_analysis,
-                    area="glasgow",
-                    hazard_type=hazard_type,
-                    scenario=scenario,
-                    input_dir=self._input_dir,
-                    output_dir=root / "hazard",
-                    forecast_horizon=forecast_horizon,
-                    use_live_data=use_live_data,
-                )
+            scenario_results = await asyncio.to_thread(
+                run_hazard_scenarios,
+                area="glasgow",
+                hazard_type=hazard_type,
+                input_dir=self._input_dir,
+                output_dir=root / "hazard",
+                forecast_horizon=forecast_horizon,
+                use_live_data=use_live_data,
+            )
+            for scenario, result in scenario_results.items():
                 hazard_results[f"{hazard_type}_{scenario}"] = result
 
         available = {
@@ -498,6 +500,26 @@ class CoreAnalystAnalysisService:
             await asyncio.to_thread(create_debug_visualization, rasters, comparison)
         registry = await asyncio.to_thread(build_core_data_registry, self._input_dir)
         historical = await asyncio.to_thread(build_historical_hydrological_sources, self._input_dir)
+        registry_artifact = await asyncio.to_thread(
+            write_core_data_registry,
+            self._input_dir,
+            root / "data_registry.json",
+        )
+        historical_artifact = root / "historical_sources.json"
+        historical_artifact.write_text(
+            json.dumps(
+                {
+                    name: {
+                        "analytical_position": source.analytical_position,
+                        "station_ids": source.station_ids() if source.zip_path.is_file() else [],
+                        "status": "available" if source.zip_path.is_file() else "unavailable",
+                    }
+                    for name, source in historical.items()
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         failures = {
             key: result.get("summary", {}).get("error")
             or result.get("summary", {}).get("reason")
@@ -506,18 +528,33 @@ class CoreAnalystAnalysisService:
             if key not in available
         }
         status = "success" if not failures else "partial" if available else "unavailable"
+        class_statistics = {
+            key: self._hazard_class_statistics(value["outputs"]["hazard_class"])
+            for key, value in available.items()
+        }
+        class_statistics.update({
+            f"combined_{key}": self._hazard_class_statistics(value["outputs"]["hazard_class"])
+            for key, value in combined.items()
+        })
         outputs = {
-            **{f"{key}_hazard_class": value["outputs"]["hazard_class"] for key, value in available.items()},
+            **{
+                f"{key}_hazard_class": value["outputs"]["hazard_class"]
+                for key, value in available.items()
+                if key.endswith("_future")
+            },
             **{f"combined_{key}_hazard_class": value["outputs"]["hazard_class"] for key, value in combined.items()},
         }
         if comparison:
             outputs["comparison_image"] = str(comparison)
+        outputs["data_registry"] = registry_artifact["path"]
+        outputs["historical_sources"] = str(historical_artifact)
         raw = {
             "status": status,
             "summary": {
                 "available_hazards": list(available),
                 "unavailable_hazards": failures,
                 "combined_scenarios": list(combined),
+                "class_statistics": class_statistics,
                 "data_registry_status_counts": {
                     status: sum(item.get("status") == status for item in registry)
                     for status in sorted({str(item.get("status")) for item in registry})
@@ -534,6 +571,103 @@ class CoreAnalystAnalysisService:
         summary_path.write_text(json.dumps(raw, indent=2, default=self._json_default), encoding="utf-8")
         raw["outputs"]["summary_report"] = str(summary_path)
         return self._persist(run_id, "all_hazards", raw)
+
+    async def run_flood_priority_assessment(
+        self,
+        *,
+        scenario: str = "future",
+        use_live_data: bool = True,
+        forecast_horizon: int = 24,
+        hazard_threshold: int = 2,
+        priority_scenario: str = "social_equity",
+        all_hazards_run_id: str | None = None,
+    ) -> AnalysisRunSummary:
+        """Run one deterministic Data Zone assessment from one all-hazards run."""
+
+        if all_hazards_run_id:
+            hazards = self._load(all_hazards_run_id)
+            if hazards.get("analysis_type") != "all_hazards":
+                raise ValueError("all_hazards_run_id does not reference an all-hazards run")
+        else:
+            hazard_summary = await self.run_all_hazards(
+                use_live_data=use_live_data,
+                forecast_horizon=forecast_horizon,
+            )
+            all_hazards_run_id = hazard_summary.run_id
+            hazards = self._load(all_hazards_run_id)
+        hazard_path = hazards.get("outputs", {}).get(f"combined_{scenario}_hazard_class")
+        if not hazard_path:
+            raise ValueError(
+                f"All-hazards run {all_hazards_run_id} has no combined {scenario} hazard raster"
+            )
+
+        prepared = await asyncio.to_thread(
+            prepare_real_exposure_vulnerability_inputs,
+            self._input_dir,
+            processed_dir=self._input_dir / "processed",
+        )
+        if not prepared.data_zone_geography:
+            raise ValueError("Prepared Census 2022 Data Zone geography is unavailable")
+        run_id = self._new_run_id()
+        raw = await asyncio.to_thread(
+            run_data_zone_flood_priority_assessment,
+            hazard_raster=hazard_path,
+            data_zones=prepared.data_zone_geography,
+            buildings=prepared.buildings,
+            critical_services=prepared.critical_services,
+            output_dir=self._output_dir / "priority_assessment" / run_id,
+            scenario=scenario,
+            hazard_threshold=hazard_threshold,
+            priority_scenario=priority_scenario,
+            provenance={
+                "all_hazards_run_id": all_hazards_run_id,
+                "use_live_data": use_live_data,
+                "forecast_horizon_hours": forecast_horizon,
+                "prepared_inputs_manifest": prepared.manifest,
+            },
+        )
+        return self._persist(run_id, "flood_priority_assessment", raw)
+
+    @staticmethod
+    def _hazard_class_statistics(path: str | Path) -> dict[str, Any]:
+        """Summarise class area without turning a mixed city into one risk label."""
+
+        with rasterio.open(path) as dataset:
+            values = dataset.read(1)
+            valid = dataset.read_masks(1) > 0
+            pixel_area_km2 = abs(
+                dataset.transform.a * dataset.transform.e
+                - dataset.transform.b * dataset.transform.d
+            ) / 1_000_000
+
+        labels = {1: "low", 2: "medium", 3: "high"}
+        counts = {
+            class_value: int(np.count_nonzero(valid & (values == class_value)))
+            for class_value in labels
+        }
+        classified_pixels = sum(counts.values())
+        present = [class_value for class_value, count in counts.items() if count]
+        dominant = max(present, key=lambda value: (counts[value], value)) if present else None
+        highest = max(present) if present else None
+        return {
+            "classified_pixels": classified_pixels,
+            "classified_area_km2": round(classified_pixels * pixel_area_km2, 6),
+            "dominant_class": labels.get(dominant),
+            "highest_class_present": labels.get(highest),
+            "classes": {
+                label: {
+                    "class_value": class_value,
+                    "pixel_count": counts[class_value],
+                    "area_km2": round(counts[class_value] * pixel_area_km2, 6),
+                    "percent_of_classified_area": round(
+                        100 * counts[class_value] / classified_pixels, 2
+                    )
+                    if classified_pixels
+                    else 0.0,
+                }
+                for class_value, label in labels.items()
+            },
+        }
 
     async def register_extension(self, spec: HazardExtensionSpec) -> AnalysisRunSummary:
         run_id = self._new_run_id()
@@ -655,12 +789,19 @@ class CoreAnalystAnalysisService:
                     )
                 )
             elif path.suffix.lower() == ".geojson":
+                visible = not (
+                    analysis_type == "flood_priority_assessment"
+                    and key != "priority_by_data_zone"
+                )
+                style = key.removesuffix("_by_data_zone")
                 layers.append(
                     AnalysisMapLayer(
                         id=f"geojson-{run_id}-{key}",
                         label=label,
                         kind="geojson",
                         url=f"http://127.0.0.1:8000/analysis/runs/{run_id}/artifacts/{key}",
+                        style=style,
+                        visible=visible,
                     )
                 )
         return layers

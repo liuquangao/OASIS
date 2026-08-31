@@ -43,8 +43,9 @@ def _show_layers(ctx: RunContext[MapAgentDeps], result: AnalysisRunSummary) -> A
     known = {layer.id for layer in ctx.deps.state.analysis_layers}
     ctx.deps.state.analysis_layers.extend(layer for layer in result.map_layers if layer.id not in known)
     ids = [layer.id for layer in result.map_layers]
+    visible_ids = [layer.id for layer in result.map_layers if layer.visible]
     ctx.deps.state.visible_analysis_layer_ids = list(dict.fromkeys(
-        [*ctx.deps.state.visible_analysis_layer_ids, *ids]
+        [*ctx.deps.state.visible_analysis_layer_ids, *visible_ids]
     ))
     if ids:
         ctx.deps.events.append(MapEvent(type="sync_analysis_layers", layer_ids=ids))
@@ -225,6 +226,42 @@ async def run_all_core_hazards(
         use_live_data=use_live_data,
         forecast_horizon=forecast_horizon_hours,
     ))
+
+
+@analysis_tools.tool
+async def run_core_flood_priority_assessment(
+    ctx: RunContext[MapAgentDeps],
+    scenario: Literal["current", "future"] = "future",
+    use_live_data: bool = True,
+    forecast_horizon_hours: int = 24,
+    hazard_threshold: Literal[1, 2, 3] = 2,
+    priority_scenario: Literal[
+        "life_safety", "social_equity", "economic_protection"
+    ] = "social_equity",
+    all_hazards_run_id: str | None = None,
+) -> AnalysisRunSummary:
+    """Run the full deterministic Data Zone risk-priority assessment.
+
+    This single call runs or reuses all hazards, then calculates population,
+    building and official-facility exposure, multidimensional vulnerability,
+    all three priority scenarios, and sensitivity outputs. It never asks the
+    language model to manufacture unit scores.
+    """
+
+    if not 1 <= forecast_horizon_hours <= 48:
+        raise ValueError("forecast_horizon_hours must be between 1 and 48")
+    _trace(ctx, "run_core_flood_priority_assessment")
+    return _show_layers(
+        ctx,
+        await ctx.deps.analysis.run_flood_priority_assessment(
+            scenario=scenario,
+            use_live_data=use_live_data,
+            forecast_horizon=forecast_horizon_hours,
+            hazard_threshold=hazard_threshold,
+            priority_scenario=priority_scenario,
+            all_hazards_run_id=all_hazards_run_id,
+        ),
+    )
 
 
 @analysis_tools.tool

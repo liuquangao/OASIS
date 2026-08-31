@@ -58,19 +58,7 @@ def run_hazard_analysis(
         "forecast_horizon": forecast_horizon,
         "use_live_data": use_live_data,
     }
-    warnings: list[dict[str, str]] = []
-    if not use_live_data:
-        disabled_message = (
-            "Live dynamic observations/forecasts were disabled; pluvial output uses explicit demo rainfall."
-            if hazard_type == "pluvial"
-            else "Live dynamic observations/forecasts were disabled; output uses static reference evidence only."
-        )
-        warnings.append(
-            {
-                "code": "dynamic_data_disabled",
-                "message": disabled_message,
-            }
-        )
+    warnings = _dynamic_data_warnings(hazard_type, use_live_data)
     try:
         if hazard_type == "pluvial":
             result = _run_pluvial_hazard(
@@ -92,28 +80,72 @@ def run_hazard_analysis(
     except Exception as exc:
         return _failure("run_hazard_analysis", parameters, exc)
 
-    outputs = _scenario_outputs(result["output_paths"], scenario)
-    summary = {
+    return _format_hazard_result(
+        hazard_type=hazard_type,
+        scenario=scenario,
+        result=result,
+        parameters=parameters,
+        warnings=warnings,
+        tool="run_hazard_analysis",
+    )
+
+
+def run_hazard_scenarios(
+    *,
+    area: str = "glasgow",
+    hazard_type: str,
+    input_dir: str | Path = "Input",
+    output_dir: str | Path = "outputs/agent_tools/hazard",
+    forecast_horizon: int = 6,
+    sepa_buffer_meters: float = 0.0,
+    water_level_buffer_meters: float = 0.0,
+    use_live_data: bool = False,
+) -> dict[str, dict[str, Any]]:
+    """Run one hazard model once and return its current and future outputs."""
+
+    _validate_area(area)
+    hazard_type = _validate_choice("hazard_type", hazard_type, SUPPORTED_HAZARDS)
+    output_root = Path(output_dir) / hazard_type / "model"
+    parameters = {
+        "area": area,
         "hazard_type": hazard_type,
-        "scenario": scenario,
-        "available_outputs": sorted(outputs),
-        "analysis_method": result["metadata"].get("analysis_method"),
+        "input_dir": str(input_dir),
+        "forecast_horizon": forecast_horizon,
+        "use_live_data": use_live_data,
     }
-    provenance = {
-        "tool": "run_hazard_analysis",
-        "parameters": parameters,
-        "metadata": result["metadata"],
-        "processing": "existing_core_analyst_hazard_pipeline",
-    }
+    warnings = _dynamic_data_warnings(hazard_type, use_live_data)
+    try:
+        if hazard_type == "pluvial":
+            result = _run_pluvial_hazard(
+                input_dir=input_dir,
+                output_dir=output_root,
+                forecast_horizon=forecast_horizon,
+                sepa_buffer_meters=sepa_buffer_meters,
+                use_live_data=use_live_data,
+            )
+        else:
+            result = _run_temporal_hazard(
+                input_dir=input_dir,
+                output_dir=output_root,
+                hazard_type=hazard_type,
+                forecast_horizon=forecast_horizon,
+                water_level_buffer_meters=water_level_buffer_meters,
+                use_live_data=use_live_data,
+            )
+    except Exception as exc:
+        failure = _failure("run_hazard_scenarios", parameters, exc)
+        return {scenario: dict(failure) for scenario in sorted(SUPPORTED_SCENARIOS)}
+
     return {
-        "status": "success",
-        "hazard_type": hazard_type,
-        "scenario": scenario,
-        "outputs": outputs,
-        "summary": summary,
-        "metadata": result["metadata"],
-        "provenance": provenance,
-        "warnings": warnings,
+        scenario: _format_hazard_result(
+            hazard_type=hazard_type,
+            scenario=scenario,
+            result=result,
+            parameters=parameters,
+            warnings=warnings,
+            tool="run_hazard_scenarios",
+        )
+        for scenario in ("current", "future")
     }
 
 
@@ -474,6 +506,50 @@ def _scenario_outputs(outputs: dict[str, Any], scenario: str) -> dict[str, Any]:
         "hazard_class": outputs.get(f"{prefix}_class"),
         "metadata": outputs.get("metadata"),
         "risk_logic": outputs.get("risk_logic"),
+    }
+
+
+def _dynamic_data_warnings(hazard_type: str, use_live_data: bool) -> list[dict[str, str]]:
+    if use_live_data:
+        return []
+    message = (
+        "Live dynamic observations/forecasts were disabled; pluvial output uses explicit demo rainfall."
+        if hazard_type == "pluvial"
+        else "Live dynamic observations/forecasts were disabled; output uses static reference evidence only."
+    )
+    return [{"code": "dynamic_data_disabled", "message": message}]
+
+
+def _format_hazard_result(
+    *,
+    hazard_type: str,
+    scenario: str,
+    result: dict[str, Any],
+    parameters: dict[str, Any],
+    warnings: list[dict[str, str]],
+    tool: str,
+) -> dict[str, Any]:
+    outputs = _scenario_outputs(result["output_paths"], scenario)
+    scenario_parameters = {**parameters, "scenario": scenario}
+    return {
+        "status": "success",
+        "hazard_type": hazard_type,
+        "scenario": scenario,
+        "outputs": outputs,
+        "summary": {
+            "hazard_type": hazard_type,
+            "scenario": scenario,
+            "available_outputs": sorted(outputs),
+            "analysis_method": result["metadata"].get("analysis_method"),
+        },
+        "metadata": result["metadata"],
+        "provenance": {
+            "tool": tool,
+            "parameters": scenario_parameters,
+            "metadata": result["metadata"],
+            "processing": "existing_core_analyst_hazard_pipeline",
+        },
+        "warnings": list(warnings),
     }
 
 

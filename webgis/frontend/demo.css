@@ -506,17 +506,6 @@ body.agent-collapsed .agent-open-button {
   font-size: 12px;
 }
 
-.report-limitations {
-  margin: 0 12px 12px;
-  padding: 12px !important;
-  border-radius: 10px;
-  background: #fff7ed;
-}
-
-.report-limitations h3 {
-  color: #9a3412 !important;
-}
-
 .report-footer {
   padding: 10px 16px;
   border-top: 1px solid #e2e8f0;

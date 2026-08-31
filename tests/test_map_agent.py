@@ -198,3 +198,16 @@ def test_mimo_settings_require_a_key() -> None:
         assert "MIMO_API_KEY" in str(error)
     else:
         raise AssertionError("MiMo configuration accepted a missing API key")
+
+
+def test_vllm_settings_build_a_strict_openai_compatible_model() -> None:
+    settings = Settings(
+        model="qwen3.8-27b",
+        model_provider="vllm",
+        openai_base_url="http://127.0.0.1:8001/v1",
+        openai_api_key=SecretStr("EMPTY"),
+    )
+    model = _select_model(None, settings)
+    assert model.model_name == "qwen3.8-27b"
+    assert model.profile["openai_chat_supports_multiple_system_messages"] is False
+    assert settings.semantic_model_configured is True

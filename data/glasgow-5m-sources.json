@@ -88,6 +88,13 @@
       "url": "https://maps.gov.scot/ATOM/shapefiles/SG_DataZoneBdry_2022.zip",
       "bytes": 26251513
     },
+    "data_zone_boundaries_2011": {
+      "dataset": "Scottish Government Data Zone Boundaries 2011",
+      "url": "https://maps.gov.scot/ATOM/shapefiles/SG_DataZoneBdry_2011.zip",
+      "bytes": 19111801,
+      "sha256": "846950b7dc74fdedc8a6c5c3d9fd9c5afeca3477a103505b590613bc9704bed8",
+      "licence": "Open Government Licence 3.0"
+    },
     "oa_dz_lookup_2022": {
       "url": "https://www.nrscotland.gov.uk/media/iz3evrqt/oa22_dz22_iz22.zip",
       "bytes": 237841
@@ -95,6 +102,48 @@
     "oa_population_2022": {
       "url": "https://www.nrscotland.gov.uk/media/owpknvgk/outputarea2022_usualresidentpopulation.csv",
       "bytes": 678338
+    },
+    "official_facilities": {
+      "postcode_grid_references": {
+        "dataset": "NRS Scottish Postcode Directory 2026/2 Postcode Index",
+        "release_date": "2026-08-18",
+        "url": "https://www.nrscotland.gov.uk/media/hy3j3g1s/spd_postcodeindex_cut_26_2_csv.zip",
+        "bytes": 9765990,
+        "sha256": "4e93069ddb9c39c211cafdc56eeb16c4b0ed4872c9a95c20e23ec73c3b499057",
+        "licence": "Open Government Licence 3.0"
+      },
+      "hospital": {
+        "dataset": "Current NHS Hospitals in Scotland",
+        "release_date": "2026-08-04",
+        "url": "https://www.opendata.nhs.scot/dataset/cbd1802e-0e04-4282-88eb-d7bdcfb120f0/resource/c698f450-eeed-41a0-88f7-c1e40a568acc/download/hospitals.csv",
+        "bytes": 29647,
+        "sha256": "7a123530cb16dd71aad2a12f5178b35e8c8959b81a576240cd6163a3a7e3cd13",
+        "licence": "Open Government Licence 3.0"
+      },
+      "school": {
+        "dataset": "Scottish Government School Contact Details January 2026",
+        "release_date": "2026-02-16",
+        "url": "https://www.gov.scot/binaries/content/documents/govscot/publications/factsheet/2019/03/school-contact-details/documents/school-contact-details/school-contact-details/govscot%3Adocument/school%2Bcontact%2Blist%2B31%2BJanuary%2B2026.xlsx",
+        "bytes": 482420,
+        "sha256": "a4716ef2a0944d4b132a5bec978094c3f5a60432c377434a3b8e1f0a2b065f6e",
+        "licence": "Open Government Licence 3.0"
+      },
+      "care_home": {
+        "dataset": "Care Inspectorate Datastore 31 July 2026",
+        "release_date": "2026-07-31",
+        "url": "https://ci-web-media-production-bucket.s3.eu-west-2.amazonaws.com/assets/260731datastoreexternal.csv",
+        "bytes": 9822242,
+        "sha256": "6dc4dff3bb215ba459eef4b4ebefc59958941cd261e308abf8dc58c864c7493f",
+        "licence": "Care Inspectorate open data terms"
+      },
+      "emergency_service": {
+        "dataset": "SFRS Fire Stations Dataset 2025-2026",
+        "release_date": "2026-08-30",
+        "url": "https://external-doc-library.s3.eu-west-2.amazonaws.com/PROD/FSOS2025-2026FireStationsDataset.xlsx",
+        "bytes": 80327,
+        "sha256": "3902ad59795d40f943b3c72dcaa088efb219a7dacb37ddac857ccf5cb47515aa",
+        "licence": "Open Government Licence 3.0"
+      }
     },
     "nrfa": {
       "api": "https://nrfaapps.ceh.ac.uk/nrfa/ws/time-series",

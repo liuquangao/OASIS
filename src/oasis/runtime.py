@@ -6,6 +6,7 @@ import httpx
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.openai import OpenAIProvider
 
 import json
@@ -65,6 +66,21 @@ def _select_model(
             provider=OpenAIProvider(
                 base_url=settings.mimo_base_url,
                 api_key=settings.mimo_api_key.get_secret_value(),
+            ),
+        )
+    if settings.model_provider == "vllm":
+        if settings.openai_base_url is None or settings.openai_api_key is None:
+            raise RuntimeError(
+                "OPENAI_BASE_URL and OPENAI_API_KEY are required for the vLLM provider."
+            )
+        return OpenAIChatModel(
+            settings.model,
+            provider=OpenAIProvider(
+                base_url=settings.openai_base_url,
+                api_key=settings.openai_api_key.get_secret_value(),
+            ),
+            profile=OpenAIModelProfile(
+                openai_chat_supports_multiple_system_messages=False,
             ),
         )
     return settings.model

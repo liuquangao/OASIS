@@ -3,7 +3,7 @@
 A model-portable GeoAI agent that combines Glasgow WebGIS interaction, recent
 SEPA observations, and deterministic Core Analyst flood-risk workflows.
 
-## Start here: environment, data, and API configuration
+## Start here: environment, data, and model configuration
 
 For the exact Glasgow 5 m workflow, a new user supplies one licensed UKCEH
 file and the credentials needed by the website. One command then downloads and
@@ -14,7 +14,7 @@ processes all other analysis data. Never commit API keys or the UKCEH raster.
 | Item | Needed for | Configuration |
 | --- | --- | --- |
 | UKCEH LCM 2019 `gb2019lcm25m.tif` | Exact Glasgow data build | Log in, accept the licence, and download it from the [EIDC order page](https://order-eidc.ceh.ac.uk/resources/1GYPT1HZ/order). This is not an API key and the file must not be redistributed. |
-| Agent model API key | Real natural-language Agent conversations | Select a supported model in `.env` and add its provider key. `OASIS_MODEL=test` works only for offline smoke tests. |
+| Agent model access | Real natural-language Agent conversations | Choose either a hosted model API or a locally deployed vLLM model. `OASIS_MODEL=test` works only for offline smoke tests. |
 | CARTO Basemaps API key | A watermark-free website basemap | Add it to the ignored `webgis/frontend/config.local.js`. It does not affect flood calculations. |
 | Met Office Site-Specific Forecast key | 24-hour forecast reports and future-pluvial analysis | Add `METOFFICE_SITE_API_KEY` to `.env`. Without it, current observations and static hazard analyses still work. |
 | ADMIRALTY Tidal API key | Optional live coastal tidal prediction | Add `ADMIRALTY_API_KEY` to `.env`. Static SEPA coastal analysis does not require it. |
@@ -33,10 +33,12 @@ python -m venv .venv
 Copy-Item .env.example .env
 ```
 
-### 2. Configure the website credentials
+### 2. Configure the model and website credentials
 
-Edit the ignored `.env` file. Choose one real Agent model/provider and replace
-only the placeholders for the features you intend to use:
+Edit the ignored `.env` file. Choose either a hosted model API or the local
+deployment described in [Agent model configuration](#3-agent-model-configuration-two-modes),
+then replace only the placeholders for the features you intend to use. This
+example uses a hosted OpenAI API:
 
 ```dotenv
 OASIS_MODEL=openai:gpt-5-mini
@@ -134,6 +136,9 @@ services used by the PydanticAI agent.
 - Inspect machine-readable data readiness without fabricating unavailable data.
 - Run pluvial, fluvial, coastal, exposure, vulnerability, priority, scenario,
   sensitivity, combined-hazard, and one-click current/future batch analysis.
+- Run one deterministic Census 2022 Data Zone assessment that combines hazard,
+  population/building/facility exposure, social vulnerability, explicit
+  priority scenarios, and paper-ready sensitivity outputs.
 - Publish generated rasters to GeoServer and add raster/GeoJSON results to the
   website's interactive layer list.
 - List and query downloaded NRFA historical river-flow and catchment-rainfall
@@ -147,7 +152,7 @@ The observation Agent exposes three tools:
 - `get_recent_water_levels_near_location`
 - `get_recent_rainfall_near_location`
 
-The browser Spatial Agent exposes thirty-one composable tools. Nine cover
+The browser Spatial Agent exposes thirty-two composable tools. Nine cover
 geocoding, nearby-place search, route retrieval and analysis, route ranking,
 map display, and session cleanup. One retrieves recent observations from nearby
 SEPA rain gauges. Four hazard tools expose snapshot status, whole-area
@@ -156,7 +161,8 @@ tools cover data readiness, controlled input preparation, pluvial/fluvial/coasta
 hazard analysis, combined hazard, coastal dynamic evidence, exposure,
 vulnerability, explicit priority ranking, scenario comparison, sensitivity,
 one-click all-hazard execution, NRFA station/series queries, and generalized
-analysis planning, and configuration-driven hazard extension execution.
+analysis planning, configuration-driven hazard extension execution, and the
+one-call `run_core_flood_priority_assessment` workflow.
 Every point and route risk analysis uses the same latest calculated raster.
 Core Analyst source is under
 `src/core_analyst/`; its local geodatabase inputs and generated rasters are
@@ -167,8 +173,73 @@ Extended analysis results are persisted under
 compact typed summary and uses `run_id` to connect dependent analyses; it cannot
 choose arbitrary server filesystem paths.
 
+The one-click all-hazards workflow runs each of the three hazard models once.
+Each model invocation produces both current and future outputs, avoiding a
+second identical model run for the other time scenario. Its Agent summary
+reports Low/Medium/High pixel counts, classified area, and area percentages for
+each hazard and the combined maps. The browser receives five focused layers:
+the three future hazard classes plus combined current and combined future.
+Detailed outputs for all six hazard/scenario pairs remain in the persisted run
+record. A mixed citywide raster is not collapsed to a single class by the
+deterministic analysis code; the report must explain the distribution.
+
 The entire application preserves Core Analyst's native class convention:
 `1 = Low`, `2 = Medium`, `3 = High`, and `0 = NoData`.
+
+## Data Zone flood-risk and social-equity priority workflow
+
+Prepare only the social-risk inputs without repeating the 9.5 GB terrain build:
+
+```bash
+oasis data prepare-risk
+```
+
+This downloads checksum-locked official releases for 2011 Data Zone boundaries,
+the NRS Scottish Postcode Directory, NHS hospitals, Scottish schools, Care
+Inspectorate care homes, and Scottish Fire and Rescue Service stations. It
+normalizes postcodes and uses the NRS grid reference; it never falls back to an
+online geocoder. Unmatched records remain in
+`Input/processed/facilities/facility_data_quality.json`.
+
+Run the full default experiment from an existing or newly calculated all-hazard
+run:
+
+```bash
+oasis priority-assessment \
+  --scenario future \
+  --forecast-horizon-hours 24 \
+  --hazard-threshold 2 \
+  --priority-scenario social_equity \
+  --no-publish
+```
+
+The deterministic workflow uses these working definitions:
+
+- **Hazard** is the Data Zone distribution of the combined maximum pluvial,
+  fluvial, and coastal class raster. It is not full risk.
+- **Exposure** is the equal-weight normalized combination of estimated exposed
+  population, exposed building footprints, and exposed official facilities.
+  Population is estimated as Data Zone population multiplied by hazardous-area
+  fraction, so it assumes uniform population within the zone.
+- **Vulnerability** combines elderly population, no-car households, area-weighted
+  SIMD 2020 deprivation, and separate distance-to-hospital and
+  distance-to-fire-station accessibility indicators. SIMD is transferred from
+  2011 to 2022 Data Zones by polygon-overlap area and is explicitly marked as an
+  approximation.
+- **Priority** is a relative weighted decision score. The default
+  `social_equity` weights are hazard `0.25`, exposure `0.25`, vulnerability
+  `0.50`; it is not a probability or official warning.
+
+Each run writes `hazard_by_data_zone.geojson`,
+`exposure_by_data_zone.geojson`, `vulnerability_by_data_zone.geojson`,
+`priority_by_data_zone.geojson`, a complete CSV, scenario and sensitivity JSON,
+a four-panel map, and a sensitivity figure. The web map initially shows only
+the selected priority layer; the other three remain available as toggles.
+
+For the paper, report the vulnerability-weight sweep (`0.10`–`0.70`), exposure
+threshold comparison (classes `>=2` versus class `3`), and vulnerability with
+and without harmonized SIMD. Generated values remain research proxies requiring
+human review and scientific validation.
 
 The current version does **not** claim to issue an operational flood warning.
 Rainfall and river-level observations are returned with provenance and quality
@@ -195,6 +266,9 @@ as the current analysis rather than substituting Copernicus DEM or WorldCover:
 - OS OpenMap Local buildings, OS Open Greenspace, and OS Open Rivers
 - SEPA Flood Maps v3.0 river and coastal probability layers
 - Scotland Census 2022 Data Zone tables, NRS lookups/population, and SIMD 2020v2
+- Scottish Government 2011 Data Zone boundaries for SIMD harmonization
+- NRS postcode coordinates plus official hospital, school, care-home, and fire
+  station releases
 - NRFA gauged daily flow and catchment daily rainfall for the 14 project stations
 
 UKCEH LCM 2019 is the only input that cannot be fetched anonymously. Each user
@@ -252,15 +326,6 @@ No API key is required to build the data. LiDAR, OS, SEPA, Census, SIMD, NRS,
 and NRFA use official anonymous download services. UKCEH requires a personal
 login/licence acceptance, not an API key. Raw UKCEH and NRFA files must remain
 local and are not suitable for a public GitHub Release.
-
-For a quick, lower-resolution development stack only, the older command remains:
-
-```powershell
-oasis data bootstrap
-```
-
-That command intentionally uses Copernicus GLO-30 and ESA WorldCover and is not
-the competition/reproduction workflow.
 
 ## External API keys
 
@@ -326,17 +391,87 @@ unavailable and the 24-hour report is marked as partial.
 The key must belong to the subscribed Site-Specific product; the separate Met
 Office Atmospheric, Map Images, and NSWWS warning keys do not replace it.
 
-### 3. Agent model API key
+### 3. Agent model configuration: two modes
 
-Offline tests use `OASIS_MODEL=test` and need no model key. For real natural-
-language Agent reasoning, configure one supported provider. For example:
+Offline tests can use `OASIS_MODEL=test` without a model server or API key. A
+real Agent run must use exactly one of the following modes.
+
+#### Mode A: hosted model API
+
+Use this mode when a provider hosts the model. OASIS sends prompts and tool
+schemas to that provider, so internet access and a valid provider key are
+required. For OpenAI, add the following to the repository-root `.env`:
 
 ```dotenv
 OASIS_MODEL=openai:gpt-5-mini
 OPENAI_API_KEY=your-provider-key
 ```
 
-The project also supports the documented MiMo configuration in `.env.example`.
+MiMo is also supported through its OpenAI-compatible endpoint:
+
+```dotenv
+OASIS_MODEL_PROVIDER=mimo
+OASIS_MODEL=mimo-v2.5-pro
+MIMO_API_KEY=your-mimo-api-key
+MIMO_BASE_URL=https://api.xiaomimimo.com/v1
+```
+
+Use the exact MiMo base URL associated with the purchased key. With hosted
+APIs, model inference leaves the local machine; deterministic OASIS analysis
+and local data remain unchanged.
+
+#### Mode B: locally deployed model with vLLM
+
+Use this mode when the model weights and a sufficiently large NVIDIA GPU are
+available locally. Model prompts and inference remain on the machine, although
+OASIS tools may still contact configured services such as SEPA, Nominatim, or
+OSRM.
+
+Start vLLM on port `8001`; port `8000` is reserved for the OASIS API. This
+tested example serves Qwen3.8-27B:
+
+```bash
+VLLM_USE_FLASHINFER_SAMPLER=0 vllm serve /path/to/Qwen3.8-27B \
+  --host 127.0.0.1 --port 8001 \
+  --served-model-name qwen3.8-27b \
+  --max-model-len 65536 --max-num-seqs 8 \
+  --gpu-memory-utilization 0.80 --enable-prefix-caching \
+  --language-model-only --reasoning-parser qwen3 \
+  --enable-auto-tool-choice --tool-call-parser qwen3_coder
+```
+
+`VLLM_USE_FLASHINFER_SAMPLER=0` selects the PyTorch sampler and avoids a
+FlashInfer architecture-detection failure seen on the tested Blackwell setup.
+It can be omitted when FlashInfer works correctly. The reasoning and tool-call
+parsers are required for Qwen3.8 tool use; use the parsers recommended for a
+different local model.
+
+Configure the repository-root `.env` to point OASIS at the local server:
+
+```dotenv
+OASIS_MODEL_PROVIDER=vllm
+OASIS_MODEL=qwen3.8-27b
+OPENAI_BASE_URL=http://127.0.0.1:8001/v1
+OPENAI_API_KEY=EMPTY
+```
+
+The vLLM provider merges OASIS's leading system instructions for compatibility
+with chat templates that accept only one initial system message.
+
+Verify either mode with:
+
+```bash
+oasis doctor
+oasis agent "Assess the available flood evidence for Glasgow"
+```
+
+For local mode, also verify the model server directly:
+
+```bash
+curl http://127.0.0.1:8001/v1/models
+```
+
+If `oasis doctor` reports `model=test`, the real semantic Agent is not enabled.
 
 ### 4. ADMIRALTY Tidal API key (optional)
 
@@ -358,11 +493,13 @@ oasis tool rainfall --place glasgow --hours 24 --limit 3
 oasis nrfa --dataset nrfa_historical_rainfall
 oasis nrfa --dataset nrfa_historical_river_flow --station-id 84001 --start-date 2020-01-01 --end-date 2020-12-31
 oasis all-hazards --static
+oasis data prepare-risk
+oasis priority-assessment --scenario future --forecast-horizon-hours 24 --no-publish
 oasis agent "Assess the available flood evidence for Glasgow" --model test
 ```
 
-For a real agent run, configure a PydanticAI-supported model and its provider
-credentials, then pass its model identifier with `--model` or `OASIS_MODEL`.
+For a real Agent run, configure either hosted API mode or local vLLM mode, then
+select its model with `--model` or `OASIS_MODEL`.
 
 ## Design rule
 

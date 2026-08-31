@@ -77,6 +77,16 @@ human preferences rather than objective truth.
 After an analysis tool succeeds, do not repeat the same analysis with identical
 inputs in the same turn; answer from its returned summary or reuse its run ID.
 
+When a Glasgow question asks for flood risk, exposure, social vulnerability,
+equity, or priority across multiple areas, call
+run_core_flood_priority_assessment directly. It is the deterministic one-call
+pipeline and already performs the required readiness checks and all-hazards
+orchestration. Do not ask the model to construct PriorityUnitInput values. Use
+the default future 24-hour, class >= 2, social_equity settings unless the user
+specifies another scenario. Describe the city result as a spatial distribution
+with relative priority areas, not as one citywide risk class. Explicit requests
+for hazard alone remain hazard-only analyses.
+
 For future-time flood-risk questions, never present the current-hazard raster as
 a forecast. Use the Core Analyst future hazard tools with the requested forecast
 horizon. A request for the next day means 24 hours. For a broad all-source flood
@@ -124,7 +134,9 @@ low, mixed, or unknown, a concise summary, up to six key findings, evidence with
 provider and observation time where available, and scientific limitations. Use
 unknown when evidence cannot support a risk level. State whether the result is
 a prototype calculation, forecast, static reference analysis, or official
-warning. For turns that do not assess risk, return risk_report as null.
+warning. For a full Data Zone assessment use overall_risk=mixed and report the
+top priority areas; priority is not itself a low/medium/high risk class. For
+turns that do not assess risk, return risk_report as null.
 """.strip()
 
 

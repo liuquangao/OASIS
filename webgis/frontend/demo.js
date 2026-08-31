@@ -125,16 +125,6 @@ function renderRiskReport(report) {
     article.appendChild(section);
   }
 
-  if (report.limitations?.length) {
-    const section = document.createElement("section");
-    section.className = "report-limitations";
-    section.appendChild(textElement("h3", "", "Limitations"));
-    const list = document.createElement("ul");
-    report.limitations.forEach((limitation) => list.appendChild(textElement("li", "", limitation)));
-    section.appendChild(list);
-    article.appendChild(section);
-  }
-
   article.appendChild(textElement("footer", "report-footer", `Generated ${new Date(report.generated_at).toLocaleString()}`));
   riskReportView.appendChild(article);
 }
@@ -146,10 +136,24 @@ function analysisLayerById(id) {
   return sessionState.analysis_layers.find((layer) => layer.id === id);
 }
 
-function geoJsonStyle(feature) {
+function geoJsonStyle(feature, descriptor) {
   const properties = feature.properties || {};
-  const score = properties.relative_vulnerability ?? properties.priority_score ?? 0.5;
-  const color = score >= 0.67 ? "#dc2626" : score >= 0.34 ? "#f59e0b" : "#16a34a";
+  const scoreFields = {
+    hazard: "hazard_score",
+    exposure: "exposure_score",
+    vulnerability: "vulnerability_score",
+    priority: "priority_score"
+  };
+  const palettes = {
+    hazard: ["#fde68a", "#f97316", "#b91c1c"],
+    exposure: ["#dbeafe", "#3b82f6", "#1e3a8a"],
+    vulnerability: ["#dcfce7", "#22c55e", "#166534"],
+    priority: ["#f3e8ff", "#a855f7", "#581c87"]
+  };
+  const style = descriptor?.style || "priority";
+  const score = properties[scoreFields[style]] ?? properties.relative_vulnerability;
+  const palette = palettes[style] || palettes.priority;
+  const color = score == null ? "#94a3b8" : score >= 0.67 ? palette[2] : score >= 0.34 ? palette[1] : palette[0];
   return { color: "#334155", weight: 1, fillColor: color, fillOpacity: 0.58 };
 }
 
@@ -169,7 +173,7 @@ async function ensureAnalysisLayer(id) {
   } else {
     const response = await fetch(descriptor.url);
     layer = L.geoJSON(await response.json(), {
-      style: geoJsonStyle,
+      style: (feature) => geoJsonStyle(feature, descriptor),
       onEachFeature: (feature, item) => item.bindPopup(
         Object.entries(feature.properties || {}).map(([key, value]) =>
           `<strong>${escapeHtml(key)}</strong>: ${escapeHtml(String(value))}`
@@ -191,7 +195,34 @@ async function setAnalysisLayer(id, visible) {
     map.removeLayer(layer);
     sessionState.visible_analysis_layer_ids = sessionState.visible_analysis_layer_ids.filter((item) => item !== id);
   }
+  updateAnalysisLegend();
   renderAnalysisLayerControls();
+}
+
+function updateAnalysisLegend() {
+  const visible = [...sessionState.visible_analysis_layer_ids].reverse()
+    .map(analysisLayerById).find((descriptor) => descriptor?.kind === "geojson");
+  if (!visible) {
+    updateHazardLegend();
+    return;
+  }
+  const legend = document.getElementById("legend-card");
+  const palettes = {
+    hazard: ["#fde68a", "#f97316", "#b91c1c"],
+    exposure: ["#dbeafe", "#3b82f6", "#1e3a8a"],
+    vulnerability: ["#dcfce7", "#22c55e", "#166534"],
+    priority: ["#f3e8ff", "#a855f7", "#581c87"]
+  };
+  const palette = palettes[visible.style] || palettes.priority;
+  document.getElementById("legend-title").textContent = visible.label;
+  setLegendScale([
+    ["high", "Higher relative score · ≥ 0.67", palette[2]],
+    ["medium", "Medium relative score · 0.34–0.66", palette[1]],
+    ["low", "Lower relative score · < 0.34", palette[0]]
+  ]);
+  document.getElementById("legend-note").textContent =
+    `${visible.style || "relative"} score: pale = lower, dark = higher. Relative research indicator, not an official warning.`;
+  legend.classList.add("visible");
 }
 
 function renderAnalysisLayerControls() {
@@ -289,9 +320,23 @@ function setHazardOverlay(visible, fitLayer = false) {
 function updateHazardLegend() {
   const legend = document.getElementById("legend-card");
   document.getElementById("legend-title").textContent = "Latest calculated hazard · 5 m";
+  setLegendScale([
+    ["high", "High · class 3", "#ef4444"],
+    ["medium", "Medium · class 2", "#f59e0b"],
+    ["low", "Low · class 1", "#38bdf8"]
+  ]);
   document.getElementById("legend-note").textContent =
     "Latest SEPA-rainfall prototype snapshot. Not an operational flood warning.";
   legend.classList.toggle("visible", sessionState.hazard_layer_visible);
+}
+
+function setLegendScale(rows) {
+  rows.forEach(([level, label, color]) => {
+    const row = document.getElementById(`legend-${level}-row`);
+    const swatch = document.getElementById(`legend-${level}-swatch`);
+    row.lastChild.textContent = label;
+    swatch.style.background = color;
+  });
 }
 
 function addMessage(role, text, typing = false) {
@@ -457,7 +502,9 @@ function applyMapEvents(events) {
     } else if (event.type === "set_hazard_layer") {
       setHazardOverlay(event.visible);
     } else if (event.type === "sync_analysis_layers") {
-      event.layer_ids.forEach((id) => setAnalysisLayer(id, true));
+      event.layer_ids.forEach((id) =>
+        setAnalysisLayer(id, sessionState.visible_analysis_layer_ids.includes(id))
+      );
     } else if (event.type === "display_routes") {
       event.route_ids.forEach(displayRoute);
       event.route_ids.forEach((id) => {

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import csv
+import json
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +29,7 @@ class DataAvailabilityRecord:
     priority: str | None = None
     analytical_role: str | None = None
     official_source_url: str | None = None
+    record_count: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -67,11 +70,6 @@ def build_core_data_registry(input_dir: str | Path = "Input") -> list[dict[str, 
         if layer.endswith(".shp"):
             local_path = polygons_dir / layer
             available = local_path.exists()
-            if not available and (input_dir / "OPEN_DATA_BOOTSTRAP.json").exists():
-                local_path = input_dir / "OPEN_DATA_BOOTSTRAP.json"
-                available = True
-                source = "Open-data bootstrap analysis extent"
-                dtype = "declared extent"
         else:
             tif_path = tif_dir / tif_names.get(layer, f"{layer}.tif")
             local_path = gdb_path if layer in gdb_layers else tif_path
@@ -95,7 +93,7 @@ def build_core_data_registry(input_dir: str | Path = "Input") -> list[dict[str, 
                 source=source if available else None,
                 local_path=str(local_path) if available else None,
                 crs="EPSG:27700" if available else None,
-                spatial_resolution="raster; see bootstrap/source metadata" if available and not layer.endswith(".shp") else ("polygon boundary or recorded extent" if available else None),
+                spatial_resolution="5m raster" if available and not layer.endswith(".shp") else ("polygon boundary" if available else None),
                 temporal_resolution="static",
                 reason_if_unavailable=None if available else f"{layer} was not found in the current Input folder.",
                 priority=priority,
@@ -186,14 +184,17 @@ def _exposure_and_vulnerability_records(input_dir: Path) -> list[DataAvailabilit
     processed_simd = input_dir / "processed" / "simd" / "simd_2020v2_indicators.csv"
     data_zone_boundary = find_data_zone_boundary(input_dir)
     simd_source = processed_simd if processed_simd.exists() else find_simd_source(input_dir)
+    enriched_data_zones = input_dir / "processed" / "data_zone" / "glasgow_data_zones_2022_enriched_simd.geojson"
+    if not _path_has_records(enriched_data_zones):
+        enriched_data_zones = input_dir / "processed" / "data_zone" / "glasgow_data_zones_2022_enriched.geojson"
     candidates = {
-        "population": data_zone_boundary,
+        "population": enriched_data_zones if _path_has_records(enriched_data_zones) else data_zone_boundary,
         "population_attributes": processed_data_zone_attributes if processed_data_zone_attributes.exists() else None,
         "buildings": processed_buildings if processed_buildings.exists() else _first_existing(input_dir, ["NS_Building.shp", "buildings.geojson", "buildings.json", "buildings.gpkg", "buildings.shp"]),
-        "critical_infrastructure": _first_existing(input_dir, ["critical_infrastructure.geojson", "critical_infrastructure.json", "critical_infrastructure.gpkg", "critical_infrastructure.shp"]),
-        "vulnerability_geography": data_zone_boundary,
-        "socioeconomic": simd_source,
-        "critical_services": _first_existing(input_dir, ["critical_services.geojson", "critical_services.shp"]),
+        "critical_infrastructure": _first_existing(input_dir, ["processed/facilities/critical_services.geojson", "critical_infrastructure.geojson", "critical_infrastructure.json", "critical_infrastructure.gpkg", "critical_infrastructure.shp"]),
+        "vulnerability_geography": enriched_data_zones if _path_has_records(enriched_data_zones) else data_zone_boundary,
+        "socioeconomic": enriched_data_zones if _path_has_records(enriched_data_zones) else simd_source,
+        "critical_services": _first_existing(input_dir, ["processed/facilities/critical_services.geojson", "critical_services.geojson", "critical_services.shp"]),
     }
     official = {
         "population": "National Records of Scotland / Scotland Census 2022 / Glasgow City Council open data",
@@ -206,10 +207,10 @@ def _exposure_and_vulnerability_records(input_dir: Path) -> list[DataAvailabilit
     urls = {
         "population": "https://www.scotlandscensus.gov.uk/",
         "buildings": "https://osdatahub.os.uk/downloads/open/OpenMapLocal",
-        "critical_infrastructure": None,
+        "critical_infrastructure": "https://www.opendata.nhs.scot/dataset/hospital-codes",
         "vulnerability_geography": "https://www.scotlandscensus.gov.uk/",
         "socioeconomic": "https://www.gov.scot/collections/scottish-index-of-multiple-deprivation-2020/",
-        "critical_services": None,
+        "critical_services": "https://www.nrscotland.gov.uk/publications/scottish-postcode-directory-20262/",
     }
     records = [
         ("population", "exposure", None, None, "static", "observed", "P0", "Population exposure source; must contain population counts by spatial unit or raster cell."),
@@ -222,6 +223,10 @@ def _exposure_and_vulnerability_records(input_dir: Path) -> list[DataAvailabilit
     output: list[DataAvailabilityRecord] = []
     for key, category, flood_type, temporal_state, evidence_type, dtype, priority, role in records:
         path = candidates[key]
+        record_count = _path_record_count(path) if path else None
+        if path and record_count == 0:
+            path = None
+            record_count = 0
         status = "available" if path else "unavailable"
         reason = None if path else "No verified local file was found in Input; do not fabricate values."
         source = official[key] if path else None
@@ -271,6 +276,7 @@ def _exposure_and_vulnerability_records(input_dir: Path) -> list[DataAvailabilit
                 priority=priority,
                 analytical_role=role,
                 official_source_url=urls[key],
+                record_count=record_count,
             )
         )
     field_paths = {
@@ -327,6 +333,25 @@ def _exposure_and_vulnerability_records(input_dir: Path) -> list[DataAvailabilit
             )
         )
     return output
+
+
+def _path_has_records(path: Path | None) -> bool:
+    return bool(path and path.is_file() and (_path_record_count(path) or 0) > 0)
+
+
+def _path_record_count(path: Path) -> int | None:
+    suffix = path.suffix.lower()
+    if suffix in {".geojson", ".json"}:
+        return len(json.loads(path.read_text(encoding="utf-8")).get("features", []))
+    if suffix == ".csv":
+        with path.open(encoding="utf-8", errors="replace", newline="") as handle:
+            return max(sum(1 for _ in csv.reader(handle)) - 1, 0)
+    if suffix == ".shp":
+        import shapefile
+
+        with shapefile.Reader(str(path)) as reader:
+            return len(reader)
+    return None
 
 
 def _known_unavailable_p2_records() -> list[DataAvailabilityRecord]:

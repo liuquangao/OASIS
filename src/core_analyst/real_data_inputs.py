@@ -6,7 +6,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from shapely.geometry import box, mapping
+from rasterio.warp import transform_geom
+from shapely.geometry import box, mapping, shape
+
+from core_analyst.analysts.data_zone_assessment import area_weight_polygon_values
 
 from core_analyst.shapefile_utils import iter_shapefile_features, shapefile_metadata
 
@@ -21,6 +24,7 @@ class PreparedRealInputs:
     data_zone_geography: str | None
     buildings: str | None
     simd: str | None
+    critical_services: str | None
     manifest: str
     unavailable: list[dict[str, str]]
 
@@ -52,6 +56,7 @@ def prepare_real_exposure_vulnerability_inputs(
         census_summary = {"status": "unavailable", "reason": str(exc)}
 
     data_zone_geography = find_data_zone_boundary(input_dir)
+    data_zone_summary: dict[str, Any] = {"status": "unavailable", "feature_count": 0}
     if data_zone_geography is None:
         unavailable.append(
             {
@@ -65,6 +70,7 @@ def prepare_real_exposure_vulnerability_inputs(
             census_path,
             data_zone_dir / "glasgow_data_zones_2022_enriched.geojson",
         )
+        data_zone_summary = _geojson_summary(data_zone_geography)
 
     simd_raw = find_simd_source(input_dir)
     simd_path = None
@@ -79,6 +85,22 @@ def prepare_real_exposure_vulnerability_inputs(
     else:
         simd_path = simd_dir / "simd_2020v2_indicators.csv"
         simd_summary = build_simd_2020v2_indicators(simd_raw, simd_path)
+        data_zone_2011 = find_data_zone_2011_boundary(input_dir)
+        if data_zone_2011 and data_zone_geography:
+            data_zone_geography = harmonise_simd_to_2022_data_zones(
+                simd_path,
+                data_zone_2011,
+                data_zone_geography,
+                data_zone_dir / "glasgow_data_zones_2022_enriched_simd.geojson",
+            )
+            data_zone_summary = _geojson_summary(data_zone_geography)
+            simd_summary["target_data_zone_compatible"] = True
+            simd_summary["harmonisation_method"] = "area_weighted_2011_to_2022_polygon_mean"
+            simd_summary["data_zone_2011_boundary"] = str(data_zone_2011)
+
+    critical_services = input_dir / "processed" / "facilities" / "critical_services.geojson"
+    if not _nonempty_geojson(critical_services):
+        critical_services = None
 
     buildings_path = None
     try:
@@ -100,6 +122,7 @@ def prepare_real_exposure_vulnerability_inputs(
             "buildings": str(buildings_path) if buildings_path else None,
             "simd": str(simd_path) if simd_path else None,
             "simd_raw": str(simd_raw) if simd_raw else None,
+            "critical_services": str(critical_services) if critical_services else None,
         },
         "pipeline_readiness": _pipeline_readiness(
             census_path=census_path,
@@ -109,8 +132,10 @@ def prepare_real_exposure_vulnerability_inputs(
             simd_compatible_with_target=bool(
                 simd_summary and simd_summary.get("target_data_zone_compatible") is True
             ),
+            critical_services=critical_services,
         ),
         "census_summary": census_summary,
+        "data_zone_summary": data_zone_summary,
         "simd_summary": simd_summary,
         "unavailable": unavailable,
     }
@@ -120,6 +145,7 @@ def prepare_real_exposure_vulnerability_inputs(
         data_zone_geography=str(data_zone_geography) if data_zone_geography else None,
         buildings=str(buildings_path) if buildings_path else None,
         simd=str(simd_path) if simd_path else None,
+        critical_services=str(critical_services) if critical_services else None,
         manifest=str(manifest_path),
         unavailable=unavailable,
     )
@@ -135,20 +161,39 @@ def build_enriched_data_zone_geography(
     with Path(attributes_path).open(encoding="utf-8", newline="") as handle:
         attributes = {row["id"]: row for row in csv.DictReader(handle)}
     payload = json.loads(boundary_path.read_text(encoding="utf-8"))
+    source_features = payload.get("features", [])
     enriched_features = []
     for feature in payload["features"]:
         properties = feature.setdefault("properties", {})
-        unit_id = str(properties.get("id") or properties.get("DZCode") or properties.get("DZCODE"))
+        unit_id = _case_insensitive_property(properties, "id", "dzcode", "data_zone")
+        if unit_id is None:
+            continue
+        unit_id = str(unit_id)
         if unit_id not in attributes:
             continue
         properties.update(attributes.get(unit_id, {}))
         properties["id"] = unit_id
-        properties["name"] = properties.get("name") or properties.get("DZName") or properties.get("DZNAME")
+        properties["name"] = _case_insensitive_property(properties, "name", "dzname")
         for key in ("population", "elderly_count", "elderly_prop", "occupied_households", "no_car_households", "no_car_household_prop"):
             if properties.get(key) not in (None, ""):
                 properties[key] = float(properties[key])
         enriched_features.append(feature)
     payload["features"] = enriched_features
+    if source_features and not enriched_features:
+        raise ValueError(
+            "Data Zone boundary is non-empty but no features matched Census attributes; "
+            "check the Data Zone id field and release year."
+        )
+    payload["metadata"] = {
+        **payload.get("metadata", {}),
+        "source_feature_count": len(source_features),
+        "matched_feature_count": len(enriched_features),
+        "unmatched_feature_count": len(source_features) - len(enriched_features),
+        "target_geography": "Scotland Census 2022 Data Zone",
+    }
+    if not payload.get("crs"):
+        payload["crs"] = {"type": "name", "properties": {"name": _infer_geojson_crs(payload)}}
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload), encoding="utf-8")
     return output_path
 
@@ -160,6 +205,8 @@ def build_real_exposure_sources(prepared: PreparedRealInputs | dict[str, Any]) -
         sources["population"] = payload["data_zone_geography"]
     if payload.get("buildings"):
         sources["buildings"] = payload["buildings"]
+    if payload.get("critical_services"):
+        sources["critical_infrastructure"] = payload["critical_services"]
     return sources
 
 
@@ -167,9 +214,10 @@ def build_real_vulnerability_sources(prepared: PreparedRealInputs | dict[str, An
     payload = asdict(prepared) if isinstance(prepared, PreparedRealInputs) else prepared
     geography = payload.get("data_zone_geography")
     sources: dict[str, Any] = {}
-    # SIMD 2020v2 indicators are prepared as tabular 2011 Data Zone data.
-    # Do not pass them into the vector vulnerability analyst until a verified
-    # 2011-to-2022 Data Zone crosswalk/geography adapter exists.
+    if geography and _geojson_has_field(Path(geography), "deprivation_score"):
+        sources["socioeconomic"] = geography
+    if payload.get("critical_services"):
+        sources["critical_services"] = payload["critical_services"]
     return geography, sources
 
 
@@ -180,9 +228,10 @@ def _pipeline_readiness(
     buildings_path: Path | None,
     simd: Path | None,
     simd_compatible_with_target: bool = False,
+    critical_services: Path | None = None,
 ) -> dict[str, Any]:
-    census_ready = census_path is not None and census_path.exists()
-    has_geography = data_zone_geography is not None
+    census_ready = census_path is not None and census_path.exists() and _csv_record_count(census_path) > 0
+    has_geography = data_zone_geography is not None and _nonempty_geojson(data_zone_geography)
     has_simd = simd is not None
     has_usable_simd = has_simd and has_geography and simd_compatible_with_target
     return {
@@ -201,9 +250,9 @@ def _pipeline_readiness(
                 "reason_if_unavailable": None if buildings_path else "OS OpenMap Local building footprints are missing.",
             },
             "critical_infrastructure": {
-                "status": "unavailable",
-                "uses_real_data": False,
-                "reason_if_unavailable": "No verified critical infrastructure dataset is present in Input.",
+                "status": "available" if critical_services else "unavailable",
+                "uses_real_data": critical_services is not None,
+                "reason_if_unavailable": None if critical_services else "No verified critical infrastructure dataset is present in Input.",
             },
         },
         "vulnerability": {
@@ -239,21 +288,74 @@ def _pipeline_readiness(
                 ),
             },
             "accessibility": {
-                "status": "unavailable",
-                "uses_real_data": False,
-                "reason_if_unavailable": "No verified critical services dataset is present in Input.",
+                "status": "available" if critical_services else "unavailable",
+                "uses_real_data": critical_services is not None,
+                "reason_if_unavailable": None if critical_services else "No verified critical services dataset is present in Input.",
             },
         },
         "priority": {
-            "status": "available" if has_geography and has_usable_simd else "unavailable",
-            "uses_real_data": bool(has_geography and has_usable_simd),
-            "reason_if_unavailable": None if has_geography and has_usable_simd else (
+            "status": "available" if has_geography and has_usable_simd and critical_services else "unavailable",
+            "uses_real_data": bool(has_geography and has_usable_simd and critical_services),
+            "reason_if_unavailable": None if has_geography and has_usable_simd and critical_services else (
                 "Priority requires unit-level hazard, exposure, and vulnerability. Current building exposure is real, "
                 "but Data Zone vulnerability is unavailable because Data Zone geometry and/or a compatible SIMD "
                 "Data Zone source are missing."
             ),
         },
     }
+
+
+def harmonise_simd_to_2022_data_zones(
+    simd_csv: str | Path,
+    boundary_2011: str | Path,
+    target_2022: str | Path,
+    output_path: str | Path,
+) -> Path:
+    """Area-weight SIMD indicators from 2011 polygons onto 2022 Data Zones."""
+
+    with Path(simd_csv).open(encoding="utf-8", newline="") as handle:
+        scores = {
+            row["id"]: _float_or_none(row.get("deprivation_score"))
+            for row in csv.DictReader(handle)
+        }
+    source_payload = _vector_payload(Path(boundary_2011))
+    target_payload = json.loads(Path(target_2022).read_text(encoding="utf-8"))
+    source_crs = _payload_crs(source_payload)
+    target_crs = _payload_crs(target_payload)
+    source_features = []
+    for feature in source_payload.get("features", []):
+        properties = feature.setdefault("properties", {})
+        unit_id = _case_insensitive_property(properties, "id", "dzcode", "data_zone")
+        if unit_id is None or scores.get(str(unit_id)) is None:
+            continue
+        geometry = feature["geometry"]
+        if source_crs != target_crs:
+            geometry = transform_geom(source_crs, target_crs, geometry)
+        source_features.append(
+            {
+                "type": "Feature",
+                "geometry": geometry,
+                "properties": {"deprivation_score": scores[str(unit_id)]},
+            }
+        )
+    values = area_weight_polygon_values(source_features, target_payload["features"])
+    matched = 0
+    for feature in target_payload["features"]:
+        unit_id = str(_case_insensitive_property(feature["properties"], "id", "dzcode"))
+        feature["properties"]["deprivation_score"] = values.get(unit_id)
+        if values.get(unit_id) is not None:
+            matched += 1
+    target_payload["metadata"] = {
+        **target_payload.get("metadata", {}),
+        "simd_harmonisation": "area_weighted_2011_to_2022_polygon_mean",
+        "simd_source_feature_count": len(source_features),
+        "simd_matched_target_count": matched,
+        "simd_cross_geography_approximation": True,
+    }
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(target_payload), encoding="utf-8")
+    return output_path
 
 
 def build_simd_2020v2_indicators(source_path: str | Path, output_path: str | Path) -> dict[str, Any]:
@@ -446,11 +548,7 @@ def prepare_os_openmap_buildings(
                 raise FileNotFoundError("Glasgow_City_1km_buffer.shp contains no polygon features.")
             clip_geometry = glasgow_features[0].geometry
         else:
-            manifest_path = input_dir / "OPEN_DATA_BOOTSTRAP.json"
-            if not manifest_path.exists():
-                raise FileNotFoundError("Glasgow_City_1km_buffer.shp was not found for OS building clipping.")
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            clip_geometry = box(*manifest["area"]["bounds"])
+            raise FileNotFoundError("Glasgow_City_1km_buffer.shp was not found for OS building clipping.")
         clip_bbox = box(*clip_geometry.bounds)
 
     features = []
@@ -504,8 +602,21 @@ def find_data_zone_boundary(input_dir: str | Path) -> Path | None:
             continue
         normalized = path.name.lower().replace("_", "").replace("-", "").replace(" ", "")
         if any(token in normalized for token in ("datazone2022", "datazone", "dz2022", "dz22")):
-            if "lookup" not in normalized and "tile" not in normalized:
+            full_name = "".join(character.lower() for character in str(path) if character.isalnum())
+            if "lookup" not in normalized and "tile" not in normalized and "2011" not in full_name:
                 candidates.append(path)
+    return sorted(candidates, key=lambda item: len(str(item)))[0] if candidates else None
+
+
+def find_data_zone_2011_boundary(input_dir: str | Path) -> Path | None:
+    input_dir = Path(input_dir)
+    candidates = []
+    for path in input_dir.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in {".shp", ".geojson", ".json"}:
+            continue
+        normalized = "".join(character.lower() for character in str(path) if character.isalnum())
+        if "datazone" in normalized and "2011" in normalized:
+            candidates.append(path)
     return sorted(candidates, key=lambda item: len(str(item)))[0] if candidates else None
 
 
@@ -558,3 +669,80 @@ def _mean_available_values(values: list[float | None]) -> float | None:
     if not finite:
         return None
     return sum(finite) / len(finite)
+
+
+def _case_insensitive_property(properties: dict[str, Any], *names: str) -> Any:
+    normalized = {
+        "".join(character.lower() for character in str(key) if character.isalnum()): value
+        for key, value in properties.items()
+    }
+    for name in names:
+        key = "".join(character.lower() for character in name if character.isalnum())
+        value = normalized.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _csv_record_count(path: Path) -> int:
+    with path.open(encoding="utf-8", newline="") as handle:
+        return max(sum(1 for _ in handle) - 1, 0)
+
+
+def _nonempty_geojson(path: str | Path | None) -> bool:
+    if path is None:
+        return False
+    path = Path(path)
+    if not path.is_file() or path.suffix.lower() not in {".geojson", ".json"}:
+        return False
+    return bool(json.loads(path.read_text(encoding="utf-8")).get("features"))
+
+
+def _geojson_has_field(path: Path, field: str) -> bool:
+    if not _nonempty_geojson(path):
+        return False
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return any(feature.get("properties", {}).get(field) is not None for feature in payload["features"])
+
+
+def _geojson_summary(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    metadata = payload.get("metadata", {})
+    return {
+        "status": "available" if payload.get("features") else "unavailable",
+        "feature_count": len(payload.get("features", [])),
+        "source_feature_count": metadata.get("source_feature_count"),
+        "matched_feature_count": metadata.get("matched_feature_count"),
+        "unmatched_feature_count": metadata.get("unmatched_feature_count"),
+        "crs": _payload_crs(payload),
+    }
+
+
+def _payload_crs(payload: dict[str, Any]) -> str:
+    return str(payload.get("crs", {}).get("properties", {}).get("name") or _infer_geojson_crs(payload))
+
+
+def _infer_geojson_crs(payload: dict[str, Any]) -> str:
+    features = payload.get("features", [])
+    if not features:
+        return "EPSG:4326"
+    bounds = shape(features[0]["geometry"]).bounds
+    return "EPSG:27700" if max(abs(value) for value in bounds) > 180 else "EPSG:4326"
+
+
+def _vector_payload(path: Path) -> dict[str, Any]:
+    if path.suffix.lower() in {".geojson", ".json"}:
+        return json.loads(path.read_text(encoding="utf-8"))
+    metadata = shapefile_metadata(path)
+    return {
+        "type": "FeatureCollection",
+        "crs": {"type": "name", "properties": {"name": metadata.crs or "EPSG:27700"}},
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": mapping(feature.geometry),
+                "properties": feature.properties,
+            }
+            for feature in iter_shapefile_features(path)
+        ],
+    }

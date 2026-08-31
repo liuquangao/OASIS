@@ -14,6 +14,8 @@ class Settings(BaseModel):
 
     model: str = "test"
     model_provider: str = "auto"
+    openai_base_url: str | None = None
+    openai_api_key: SecretStr | None = None
     mimo_api_key: SecretStr | None = None
     mimo_base_url: str = "https://api.xiaomimimo.com/v1"
     http_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
@@ -48,6 +50,10 @@ class Settings(BaseModel):
         return cls(
             model=os.getenv("OASIS_MODEL", "test"),
             model_provider=os.getenv("OASIS_MODEL_PROVIDER", "auto"),
+            openai_base_url=os.getenv("OPENAI_BASE_URL"),
+            openai_api_key=(
+                SecretStr(value) if (value := os.getenv("OPENAI_API_KEY")) else None
+            ),
             mimo_api_key=(
                 SecretStr(value) if (value := os.getenv("MIMO_API_KEY")) else None
             ),
@@ -127,4 +133,6 @@ class Settings(BaseModel):
             return False
         if self.model_provider == "mimo":
             return self.mimo_api_key is not None
+        if self.model_provider == "vllm":
+            return self.openai_base_url is not None and self.openai_api_key is not None
         return True

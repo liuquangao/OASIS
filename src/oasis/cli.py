@@ -10,12 +10,12 @@ from typing import Any
 import httpx
 
 from oasis import __version__
-from oasis.data_bootstrap import bootstrap_glasgow_open_data, result_dict
 from oasis.domain.areas import list_supported_areas, resolve_area
 from oasis.integrations.sepa import SepaTimeSeriesClient
 from oasis.runtime import build_analysis_service, run_agent
 from oasis.reproducible_data import (
     preflight_exact_data,
+    prepare_risk_inputs,
     rebuild_glasgow_5m,
     result_dict as exact_result_dict,
     verify_glasgow_5m,
@@ -74,6 +74,18 @@ async def _run(args: argparse.Namespace) -> int:
         _json(result)
         return 0
 
+    if args.command == "priority-assessment":
+        result = await build_analysis_service(settings, publish=not args.no_publish).run_flood_priority_assessment(
+            scenario=args.scenario,
+            use_live_data=not args.static,
+            forecast_horizon=args.forecast_horizon_hours,
+            hazard_threshold=args.hazard_threshold,
+            priority_scenario=args.priority_scenario,
+            all_hazards_run_id=args.all_hazards_run_id,
+        )
+        _json(result)
+        return 0
+
     if args.command == "nrfa":
         service = build_analysis_service(settings, publish=False)
         if args.station_id:
@@ -86,18 +98,6 @@ async def _run(args: argparse.Namespace) -> int:
         else:
             result = await service.nrfa_stations(args.dataset)
         _json(result)
-        return 0
-
-    if args.command == "data" and args.data_command == "bootstrap":
-        result = await asyncio.to_thread(
-            bootstrap_glasgow_open_data,
-            args.input_dir or settings.core_analyst_input_dir,
-            resolution=args.resolution,
-            include_exposure=args.include_exposure,
-            force=args.force,
-            user_agent=settings.user_agent,
-        )
-        _json(result_dict(result))
         return 0
 
     if args.command == "data" and args.data_command == "preflight":
@@ -119,6 +119,18 @@ async def _run(args: argparse.Namespace) -> int:
 
     if args.command == "data" and args.data_command == "verify":
         _json(verify_glasgow_5m(args.input_dir or settings.core_analyst_input_dir))
+        return 0
+
+
+    if args.command == "data" and args.data_command == "prepare-risk":
+        result = await asyncio.to_thread(
+            prepare_risk_inputs,
+            args.input_dir or settings.core_analyst_input_dir,
+            cache_dir=args.cache_dir,
+            force=args.force,
+            user_agent=settings.user_agent,
+        )
+        _json(result)
         return 0
 
     if args.tool_command == "area":
@@ -169,6 +181,22 @@ def build_parser() -> argparse.ArgumentParser:
     all_hazards.add_argument("--no-publish", action="store_true", help="Do not publish generated rasters to GeoServer.")
     all_hazards.add_argument("--forecast-horizon-hours", type=int, default=6)
 
+    priority = sub.add_parser(
+        "priority-assessment",
+        help="Run the end-to-end Data Zone hazard, exposure, vulnerability, and priority workflow.",
+    )
+    priority.add_argument("--scenario", choices=["current", "future"], default="future")
+    priority.add_argument("--static", action="store_true")
+    priority.add_argument("--no-publish", action="store_true")
+    priority.add_argument("--forecast-horizon-hours", type=int, default=24)
+    priority.add_argument("--hazard-threshold", type=int, choices=[1, 2, 3], default=2)
+    priority.add_argument(
+        "--priority-scenario",
+        choices=["life_safety", "social_equity", "economic_protection"],
+        default="social_equity",
+    )
+    priority.add_argument("--all-hazards-run-id")
+
     nrfa = sub.add_parser("nrfa", help="List or query local NRFA historical series.")
     nrfa.add_argument("--dataset", choices=["nrfa_historical_river_flow", "nrfa_historical_rainfall"], required=True)
     nrfa.add_argument("--station-id")
@@ -177,22 +205,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     data = sub.add_parser("data", help="Acquire and prepare reproducible analysis inputs.")
     data_sub = data.add_subparsers(dest="data_command", required=True)
-    bootstrap = data_sub.add_parser(
-        "bootstrap",
-        help="Build the Glasgow hazard stack from public data services.",
-    )
-    bootstrap.add_argument("--input-dir", type=str)
-    bootstrap.add_argument("--resolution", type=float, default=30.0)
-    bootstrap.add_argument(
-        "--include-exposure",
-        action="store_true",
-        help="Also download the much larger OS OpenMap Local NS building dataset.",
-    )
-    bootstrap.add_argument(
-        "--force",
-        action="store_true",
-        help="Replace files previously created by this bootstrap profile.",
-    )
     preflight = data_sub.add_parser(
         "preflight",
         help="Check licences and the manually obtained UKCEH file before large downloads.",
@@ -212,6 +224,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify = data_sub.add_parser("verify", help="Verify the exact Glasgow 5 m input contract.")
     verify.add_argument("--input-dir", type=str)
+
+    prepare_risk = data_sub.add_parser(
+        "prepare-risk",
+        help="Download locked official facilities and prepare Data Zone social-risk inputs.",
+    )
+    prepare_risk.add_argument("--input-dir", type=str)
+    prepare_risk.add_argument("--cache-dir", type=str)
+    prepare_risk.add_argument("--force", action="store_true")
 
     tool = sub.add_parser("tool", help="Run deterministic tools without an LLM.")
     tool_sub = tool.add_subparsers(dest="tool_command", required=True)

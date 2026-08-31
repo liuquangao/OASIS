@@ -15,7 +15,11 @@ from core_analyst.analysts.exposure_analysis import (
 )
 from core_analyst.analysts.vulnerability_analysis import run_vulnerability_analysis
 from core_analyst.data_sources import RasterGrid
-from core_analyst.tools.agent_tools import ToolInputError, run_priority_analysis
+from core_analyst.tools.agent_tools import (
+    ToolInputError,
+    run_hazard_scenarios,
+    run_priority_analysis,
+)
 from core_analyst.workflows.multi_hazard import combine_hazard_maps
 from oasis.agent import spatial_agent
 from oasis.integrations.core_analysis import CoreAnalystAnalysisService
@@ -102,6 +106,7 @@ def test_spatial_agent_exposes_extended_core_analysis_tools() -> None:
         "combine_core_hazard_analyses",
         "get_core_coastal_dynamic_evidence",
         "run_all_core_hazards",
+        "run_core_flood_priority_assessment",
         "list_nrfa_historical_stations",
         "query_nrfa_historical_series",
         "plan_generalized_core_analysis",
@@ -137,16 +142,31 @@ async def test_all_hazards_reports_unavailable_inputs_without_crashing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def unavailable_hazard(**kwargs):
-        hazard = f"{kwargs['hazard_type']}_{kwargs['scenario']}"
+    calls = []
+
+    def unavailable_hazard_scenarios(**kwargs):
+        calls.append(kwargs["hazard_type"])
         return {
-            "status": "failed",
-            "summary": {"error": f"Forecast input unavailable for {hazard}."},
-            "outputs": {},
-            "warnings": [{"code": "forecast_unavailable", "message": f"No input for {hazard}."}],
+            scenario: {
+                "status": "failed",
+                "summary": {
+                    "error": f"Forecast input unavailable for {kwargs['hazard_type']}_{scenario}."
+                },
+                "outputs": {},
+                "warnings": [
+                    {
+                        "code": "forecast_unavailable",
+                        "message": f"No input for {kwargs['hazard_type']}_{scenario}.",
+                    }
+                ],
+            }
+            for scenario in ("current", "future")
         }
 
-    monkeypatch.setattr("oasis.integrations.core_analysis.run_hazard_analysis", unavailable_hazard)
+    monkeypatch.setattr(
+        "oasis.integrations.core_analysis.run_hazard_scenarios",
+        unavailable_hazard_scenarios,
+    )
 
     result = await _service(tmp_path).run_all_hazards(use_live_data=True, forecast_horizon=24)
 
@@ -155,6 +175,59 @@ async def test_all_hazards_reports_unavailable_inputs_without_crashing(
     assert len(result.summary["unavailable_hazards"]) == 6
     assert result.map_layers == []
     assert len(result.warnings) == 6
+    assert calls == ["pluvial", "fluvial", "coastal"]
+
+
+def test_hazard_class_statistics_report_area_distribution(tmp_path: Path) -> None:
+    path = tmp_path / "classes.tif"
+    _write_raster(path, np.array([[1, 1, 2], [2, 3, 0]], dtype="uint8"), "uint8")
+
+    statistics = CoreAnalystAnalysisService._hazard_class_statistics(path)
+
+    assert statistics["classified_pixels"] == 5
+    assert statistics["classified_area_km2"] == 0.000005
+    assert statistics["dominant_class"] == "medium"
+    assert statistics["highest_class_present"] == "high"
+    assert statistics["classes"]["low"]["percent_of_classified_area"] == 40.0
+    assert statistics["classes"]["high"]["percent_of_classified_area"] == 20.0
+
+
+def test_paired_hazard_scenarios_run_the_model_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_pluvial(**kwargs):
+        calls.append(kwargs)
+        return {
+            "output_paths": {
+                "current_hazard_index": "current-index.tif",
+                "current_hazard_class": "current-class.tif",
+                "future_hazard_index": "future-index.tif",
+                "future_hazard_class": "future-class.tif",
+                "metadata": "metadata.json",
+                "risk_logic": "risk_logic.md",
+            },
+            "metadata": {"analysis_method": "test_pluvial"},
+        }
+
+    monkeypatch.setattr(
+        "core_analyst.tools.agent_tools._run_pluvial_hazard",
+        fake_pluvial,
+    )
+
+    results = run_hazard_scenarios(
+        hazard_type="pluvial",
+        input_dir=tmp_path / "Input",
+        output_dir=tmp_path / "outputs",
+        forecast_horizon=24,
+    )
+
+    assert len(calls) == 1
+    assert results["current"]["outputs"]["hazard_class"] == "current-class.tif"
+    assert results["future"]["outputs"]["hazard_class"] == "future-class.tif"
+    assert results["current"]["metadata"] is results["future"]["metadata"]
 
 
 async def test_priority_run_requires_explicit_unit_scores_and_persists_result(tmp_path: Path) -> None:

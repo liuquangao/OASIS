@@ -54,3 +54,8 @@ def test_cli_exposes_exact_data_commands() -> None:
         ["data", "rebuild", "--lcm2019", "gb2019lcm25m.tif", "--accept-licences"]
     )
     assert args.accept_licences is True
+    args = parser.parse_args(["data", "prepare-risk"])
+    assert args.data_command == "prepare-risk"
+    args = parser.parse_args(["priority-assessment"])
+    assert args.priority_scenario == "social_equity"
+    assert args.forecast_horizon_hours == 24

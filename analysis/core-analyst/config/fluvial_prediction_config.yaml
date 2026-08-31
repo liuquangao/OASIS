@@ -3,6 +3,8 @@ classification:
   medium: [0.33, 0.80]
   high: [0.80, 1.0]
 
+rainfall_thresholds: [0, 5, 15, 30]
+
 current_weights:
   baseline_high: 0.30
   baseline_medium: 0.35

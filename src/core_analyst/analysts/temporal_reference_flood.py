@@ -8,6 +8,7 @@ import numpy as np
 
 from core_analyst.data_sources import DataSource, RasterGrid, write_raster
 from core_analyst.tools.classification import HazardClassifier
+from core_analyst.tools.factor_analyzers import RainfallAnalyzer
 from core_analyst.tools.weighted_overlay import WeightedOverlayAnalyzer
 
 
@@ -105,11 +106,51 @@ class TemporalReferenceFloodAnalyst:
         for name, source in sources.items():
             try:
                 grid = source.get_data(reference=reference)
-                layers[name] = grid.data
-                metadata[name] = {"status": "available", "source_type": grid.source_type, "metadata": grid.metadata}
             except Exception as exc:
                 metadata[name] = {"status": "unavailable", "error": str(exc)}
+                continue
+
+            values, processing = self._prepare_forcing(name, grid.data)
+            layers[name] = values
+            metadata[name] = {
+                "status": "available",
+                "source_type": grid.source_type,
+                "metadata": grid.metadata,
+                "processing": processing,
+            }
         return layers, metadata
+
+    def _prepare_forcing(self, name: str, values: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+        if name in {"rainfall_observation", "rainfall_forecast"}:
+            thresholds = self.config["rainfall_thresholds"]
+            values = RainfallAnalyzer(thresholds=thresholds).analyze(values)
+            processing = {
+                "method": "piecewise_linear_rainfall_risk",
+                "input_units": "mm/hour",
+                "output_range": [0.0, 1.0],
+                "thresholds_mm_per_hour": thresholds,
+            }
+        else:
+            processing = {
+                "method": "source_supplied_relative_risk",
+                "output_range": [0.0, 1.0],
+            }
+
+        self._validate_relative_risk(name, values)
+        return values.astype("float32"), processing
+
+    @staticmethod
+    def _validate_relative_risk(name: str, values: np.ndarray) -> None:
+        finite = values[np.isfinite(values)]
+        if not finite.size:
+            return
+        minimum = float(np.min(finite))
+        maximum = float(np.max(finite))
+        if minimum < 0.0 or maximum > 1.0:
+            raise ValueError(
+                f"Forcing '{name}' must be a relative-risk raster in [0, 1]; "
+                f"received range [{minimum}, {maximum}]."
+            )
 
     def _reference_to_index(self, values: np.ndarray, valid_mask: np.ndarray) -> np.ndarray:
         hazard = np.zeros(values.shape, dtype="float32")
