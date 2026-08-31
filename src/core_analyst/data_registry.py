@@ -35,6 +35,7 @@ class DataAvailabilityRecord:
 def build_core_data_registry(input_dir: str | Path = "Input") -> list[dict[str, Any]]:
     input_dir = Path(input_dir)
     gdb_path = input_dir / "OASIS_raster.gdb" / "OASIS_raster.gdb"
+    tif_dir = input_dir / "OASIS_Rasters" / "OASIS_Rasters"
     csv_dir = input_dir / "CSV-20260825T012052Z-1-001" / "CSV"
     polygons_dir = input_dir / "OASIS_Polygon" / "OASIS_Polygon"
 
@@ -53,8 +54,35 @@ def build_core_data_registry(input_dir: str | Path = "Input") -> list[dict[str, 
         ("Glasgow City 1km Buffer", "Glasgow_City_1km_buffer.shp", None, None, "static", "observed", "Local OASIS polygon input", "P0", "Study-area boundary for Glasgow station discovery."),
     ]
     for dataset, layer, flood_type, temporal_state, evidence_type, dtype, source, priority, role in static_layers:
-        local_path = polygons_dir / layer if layer.endswith(".shp") else gdb_path
-        available = local_path.exists() and (layer.endswith(".shp") or layer in gdb_layers)
+        tif_names = {
+            "DTM_5m_res": "DTM_5m_res.tif",
+            "Slope_degrees_DTM_5m": "Slope_degrees_DTM_5m.tif",
+            "FlowAcc_DTM_5m": "FlowAcc_DTM_5m.tif",
+            "UKCEH_Landcover_5m_res": "UKCEH_Landcover_5m_res.tif",
+            "OS_Built_Up_Areas_5m_res": "OS_Built_Up_Areas_5m_res.tif",
+            "OS_Rivers_5m_res": "OS_Rivers_5m_res.tif",
+            "SEPA_River_High_Flood_5m_res": "SEPA_River_High_Flood_5m_.tif",
+            "SEPA_Coastal_High_Flood_5m_res": "SEPA_Coastal_High_Flood_5.tif",
+        }
+        if layer.endswith(".shp"):
+            local_path = polygons_dir / layer
+            available = local_path.exists()
+            if not available and (input_dir / "OPEN_DATA_BOOTSTRAP.json").exists():
+                local_path = input_dir / "OPEN_DATA_BOOTSTRAP.json"
+                available = True
+                source = "Open-data bootstrap analysis extent"
+                dtype = "declared extent"
+        else:
+            tif_path = tif_dir / tif_names.get(layer, f"{layer}.tif")
+            local_path = gdb_path if layer in gdb_layers else tif_path
+            available = layer in gdb_layers or tif_path.exists()
+            if not available and layer in {"Slope_degrees_DTM_5m", "FlowAcc_DTM_5m"}:
+                dem_path = tif_dir / "DTM_5m_res.tif"
+                if dem_path.exists():
+                    local_path = dem_path
+                    available = True
+                    dtype = "derived proxy"
+                    source = "Derived from the downloaded DEM at analysis time"
         records.append(
             DataAvailabilityRecord(
                 dataset=dataset,
@@ -67,7 +95,7 @@ def build_core_data_registry(input_dir: str | Path = "Input") -> list[dict[str, 
                 source=source if available else None,
                 local_path=str(local_path) if available else None,
                 crs="EPSG:27700" if available else None,
-                spatial_resolution="5m raster" if available and not layer.endswith(".shp") else ("polygon boundary" if available else None),
+                spatial_resolution="raster; see bootstrap/source metadata" if available and not layer.endswith(".shp") else ("polygon boundary or recorded extent" if available else None),
                 temporal_resolution="static",
                 reason_if_unavailable=None if available else f"{layer} was not found in the current Input folder.",
                 priority=priority,

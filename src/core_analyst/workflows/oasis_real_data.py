@@ -6,6 +6,7 @@ from rasterio.enums import Resampling
 
 from core_analyst.data_adapters import (
     AlignedRasterSource,
+    DerivedSlopeSource,
     FallbackDataSource,
     ImperviousnessCompositeSource,
     RiverNetworkPresenceSource,
@@ -135,10 +136,25 @@ def build_oasis_input_sources(
         )
     else:
         dem = AlignedRasterSource("dem", tif_dir / "DTM_5m_res.tif", Resampling.bilinear)
-        slope = AlignedRasterSource("slope", tif_dir / "Slope_degrees_DTM_5m.tif", Resampling.bilinear)
+        slope_path = tif_dir / "Slope_degrees_DTM_5m.tif"
+        slope = (
+            AlignedRasterSource("slope", slope_path, Resampling.bilinear)
+            if slope_path.exists()
+            else DerivedSlopeSource(dem)
+        )
         built_up = AlignedRasterSource("built_up", tif_dir / "OS_Built_Up_Areas_5m_res.tif", Resampling.nearest)
-        greenspace = AlignedRasterSource("greenspace", tif_dir / "OS_Greenspace_5m_res.tif", Resampling.nearest)
-        landcover = AlignedRasterSource("landcover", tif_dir / "UKCEH_Landcover_5m_res.tif", Resampling.nearest)
+        greenspace_path = tif_dir / "OS_Greenspace_5m_res.tif"
+        greenspace = (
+            AlignedRasterSource("greenspace", greenspace_path, Resampling.nearest)
+            if greenspace_path.exists()
+            else None
+        )
+        landcover_path = tif_dir / "UKCEH_Landcover_5m_res.tif"
+        landcover = (
+            AlignedRasterSource("landcover", landcover_path, Resampling.nearest)
+            if landcover_path.exists()
+            else None
+        )
         rivers = AlignedRasterSource("rivers", tif_dir / "OS_Rivers_5m_res.tif", Resampling.nearest)
         flow_accumulation = FallbackDataSource(
             "flow_accumulation",

@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from oasis import __version__
+from oasis.data_bootstrap import bootstrap_glasgow_open_data, result_dict
 from oasis.domain.areas import list_supported_areas, resolve_area
 from oasis.integrations.sepa import SepaTimeSeriesClient
 from oasis.runtime import build_analysis_service, run_agent
@@ -81,6 +82,18 @@ async def _run(args: argparse.Namespace) -> int:
         _json(result)
         return 0
 
+    if args.command == "data" and args.data_command == "bootstrap":
+        result = await asyncio.to_thread(
+            bootstrap_glasgow_open_data,
+            args.input_dir or settings.core_analyst_input_dir,
+            resolution=args.resolution,
+            include_exposure=args.include_exposure,
+            force=args.force,
+            user_agent=settings.user_agent,
+        )
+        _json(result_dict(result))
+        return 0
+
     if args.tool_command == "area":
         area = resolve_area(args.place)
         _json(area)
@@ -134,6 +147,25 @@ def build_parser() -> argparse.ArgumentParser:
     nrfa.add_argument("--station-id")
     nrfa.add_argument("--start-date")
     nrfa.add_argument("--end-date")
+
+    data = sub.add_parser("data", help="Acquire and prepare reproducible analysis inputs.")
+    data_sub = data.add_subparsers(dest="data_command", required=True)
+    bootstrap = data_sub.add_parser(
+        "bootstrap",
+        help="Build the Glasgow hazard stack from public data services.",
+    )
+    bootstrap.add_argument("--input-dir", type=str)
+    bootstrap.add_argument("--resolution", type=float, default=30.0)
+    bootstrap.add_argument(
+        "--include-exposure",
+        action="store_true",
+        help="Also download the much larger OS OpenMap Local NS building dataset.",
+    )
+    bootstrap.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace files previously created by this bootstrap profile.",
+    )
 
     tool = sub.add_parser("tool", help="Run deterministic tools without an LLM.")
     tool_sub = tool.add_subparsers(dest="tool_command", required=True)

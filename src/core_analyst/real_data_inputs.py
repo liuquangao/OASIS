@@ -43,8 +43,13 @@ def prepare_real_exposure_vulnerability_inputs(
     exposure_dir.mkdir(parents=True, exist_ok=True)
     simd_dir.mkdir(parents=True, exist_ok=True)
 
-    census_path = data_zone_dir / "data_zone_attributes.csv"
-    census_summary = build_census_data_zone_attributes(input_dir, census_path)
+    census_path: Path | None = data_zone_dir / "data_zone_attributes.csv"
+    try:
+        census_summary = build_census_data_zone_attributes(input_dir, census_path)
+    except FileNotFoundError as exc:
+        unavailable.append({"dataset": "Scotland Census 2022", "reason": str(exc)})
+        census_path = None
+        census_summary = {"status": "unavailable", "reason": str(exc)}
 
     data_zone_geography = find_data_zone_boundary(input_dir)
     if data_zone_geography is None:
@@ -54,7 +59,7 @@ def prepare_real_exposure_vulnerability_inputs(
                 "reason": "No local Data Zone 2022 polygon boundary file was found under Input.",
             }
         )
-    elif data_zone_geography.suffix.lower() in {".geojson", ".json"}:
+    elif census_path and data_zone_geography.suffix.lower() in {".geojson", ".json"}:
         data_zone_geography = build_enriched_data_zone_geography(
             data_zone_geography,
             census_path,
@@ -90,7 +95,7 @@ def prepare_real_exposure_vulnerability_inputs(
         "processing_note": "Raw Input files are read-only; generated adapters are written under Input/processed.",
         "target_spatial_unit": "Scotland Census 2022 Data Zone",
         "prepared": {
-            "census_attributes": str(census_path),
+            "census_attributes": str(census_path) if census_path else None,
             "data_zone_geography": str(data_zone_geography) if data_zone_geography else None,
             "buildings": str(buildings_path) if buildings_path else None,
             "simd": str(simd_path) if simd_path else None,
@@ -111,7 +116,7 @@ def prepare_real_exposure_vulnerability_inputs(
     }
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return PreparedRealInputs(
-        census_attributes=str(census_path),
+        census_attributes=str(census_path) if census_path else None,
         data_zone_geography=str(data_zone_geography) if data_zone_geography else None,
         buildings=str(buildings_path) if buildings_path else None,
         simd=str(simd_path) if simd_path else None,
@@ -170,13 +175,13 @@ def build_real_vulnerability_sources(prepared: PreparedRealInputs | dict[str, An
 
 def _pipeline_readiness(
     *,
-    census_path: Path,
+    census_path: Path | None,
     data_zone_geography: Path | None,
     buildings_path: Path | None,
     simd: Path | None,
     simd_compatible_with_target: bool = False,
 ) -> dict[str, Any]:
-    census_ready = census_path.exists()
+    census_ready = census_path is not None and census_path.exists()
     has_geography = data_zone_geography is not None
     has_simd = simd is not None
     has_usable_simd = has_simd and has_geography and simd_compatible_with_target
@@ -435,12 +440,17 @@ def prepare_os_openmap_buildings(
     clip_bbox = None
     if clip_to_glasgow_buffer:
         glasgow_path = input_dir / "OASIS_Polygon" / "OASIS_Polygon" / "Glasgow_City_1km_buffer.shp"
-        if not glasgow_path.exists():
-            raise FileNotFoundError("Glasgow_City_1km_buffer.shp was not found for OS building clipping.")
-        glasgow_features = list(iter_shapefile_features(glasgow_path))
-        if not glasgow_features:
-            raise FileNotFoundError("Glasgow_City_1km_buffer.shp contains no polygon features.")
-        clip_geometry = glasgow_features[0].geometry
+        if glasgow_path.exists():
+            glasgow_features = list(iter_shapefile_features(glasgow_path))
+            if not glasgow_features:
+                raise FileNotFoundError("Glasgow_City_1km_buffer.shp contains no polygon features.")
+            clip_geometry = glasgow_features[0].geometry
+        else:
+            manifest_path = input_dir / "OPEN_DATA_BOOTSTRAP.json"
+            if not manifest_path.exists():
+                raise FileNotFoundError("Glasgow_City_1km_buffer.shp was not found for OS building clipping.")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            clip_geometry = box(*manifest["area"]["bounds"])
         clip_bbox = box(*clip_geometry.bounds)
 
     features = []
@@ -473,7 +483,7 @@ def prepare_os_openmap_buildings(
             "scanned_feature_count": scanned,
             "feature_count": len(features),
             "skipped_by_bbox": skipped_by_bbox,
-            "clip_geometry": "Glasgow_City_1km_buffer" if clip_geometry is not None else None,
+            "clip_geometry": "Glasgow analysis extent" if clip_geometry is not None else None,
             "geographic_unit": "building_footprint",
         },
         "features": features,

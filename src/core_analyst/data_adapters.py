@@ -207,7 +207,7 @@ class RiverNetworkPresenceSource(DataSource):
             {
                 "derived_from": rivers.metadata,
                 "interpretation": (
-                    "Binary river-network context from OS Rivers. This is a first fluvial static factor; "
+                    "Binary river/water-network context from the configured source raster. This is a first fluvial static factor; "
                     "future versions should replace or augment it with river distance, catchment topology, "
                     "and flow routing."
                 ),
@@ -299,8 +299,8 @@ class ImperviousnessCompositeSource(DataSource):
             metadata["landcover"] = landcover.metadata
             metadata["landcover_runoff_score"] = LANDCOVER_RUNOFF_SCORE
         metadata["prototype_note"] = (
-            "Normalized imperviousness-based runoff susceptibility proxy from built-up areas, "
-            "greenspace, and UKCEH land-cover classes. Replace or calibrate with authoritative "
+            "Normalized imperviousness-based runoff susceptibility proxy from the available built-up areas, "
+            "greenspace, and optional land-cover classes. Replace or calibrate with authoritative "
             "imperviousness/runoff observations when available."
         )
         finite = np.isfinite(impervious)

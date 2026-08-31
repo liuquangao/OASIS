@@ -100,6 +100,45 @@ python -m venv .venv
 Copy-Item .env.example .env
 ```
 
+### Reproduce the analysis data from an empty clone
+
+Large local rasters are deliberately excluded from Git. A new clone can build
+the minimum real-data Glasgow hazard stack directly from public services:
+
+```powershell
+oasis data bootstrap
+```
+
+This downloads and clips Copernicus DEM GLO-30, ESA WorldCover 2021, and the
+six current SEPA river/coastal flood-map probability layers. It writes the
+compatible raster contract under `analysis/core-analyst/Input/OASIS_Rasters/`
+and records source URLs, retrieval time, actual resolution, attribution, and
+SHA-256 checksums in `analysis/core-analyst/Input/OPEN_DATA_BOOTSTRAP.json`.
+No API key is required. The current Glasgow profile downloads about 66 MB and
+derives slope and the explicit topographic flow proxy from the DEM at analysis
+time.
+
+For building-footprint exposure as well, run:
+
+```powershell
+oasis data bootstrap --include-exposure
+```
+
+That option uses the anonymous OS Downloads API to fetch the current OS
+OpenMap Local `NS` shapefile package, verifies its published MD5 checksum, and
+clips buildings to the Glasgow analysis extent. It is a much larger download
+(currently about 420 MB compressed). Census population, SIMD vulnerability,
+NRFA history, and licensed/specialist datasets remain separate optional inputs;
+the application reports them as unavailable rather than substituting invented
+values.
+
+The open-data profile is intentionally lower resolution than the original
+local 5 m OASIS geodatabase. Legacy filenames are retained only so the same
+analysis interfaces can consume either profile; the actual grid resolution is
+always stated in the bootstrap manifest. SEPA data must retain its SEPA/OGL
+attribution, ESA WorldCover is CC BY 4.0, and Copernicus DEM attribution is
+included in the generated manifest.
+
 ## External API keys
 
 Two API keys are needed for the complete browser experience and 24-hour
