@@ -39,6 +39,35 @@ class DataSource(ABC):
         """Return an analysis-ready raster/grid."""
 
 
+class MemoizedDataSource(DataSource):
+    """Reuse one external source result across analysts on the same raster grid."""
+
+    def __init__(self, source: DataSource):
+        self.source = source
+        self._grids: dict[tuple[Any, ...], RasterGrid] = {}
+        self._errors: dict[tuple[Any, ...], Exception] = {}
+
+    def get_data(self, reference: RasterGrid | None = None) -> RasterGrid:
+        if reference is None:
+            raise ValueError("Memoized data sources require a reference raster grid.")
+        key = (
+            tuple(reference.data.shape),
+            str(reference.profile.get("crs")),
+            str(reference.profile.get("transform")),
+        )
+        if key in self._grids:
+            return self._grids[key]
+        if key in self._errors:
+            raise self._errors[key]
+        try:
+            grid = self.source.get_data(reference=reference)
+        except Exception as exc:
+            self._errors[key] = exc
+            raise
+        self._grids[key] = grid
+        return grid
+
+
 class DynamicDataError(RuntimeError):
     """Raised when a dynamic source fails after bounded retry."""
 
@@ -597,12 +626,16 @@ class MetOfficeSiteForecastRainfallSource(RealTimeAPISource):
     def __init__(
         self,
         sample_points: list[tuple[float, float]] | None = None,
+        sample_grid_size: int = 5,
         timesteps: str = "hourly",
         horizon_hours: int = 6,
         max_attempts: int = 2,
         retry_backoff_seconds: float = 0.25,
     ):
+        if not 3 <= sample_grid_size <= 9:
+            raise ValueError("Met Office sample_grid_size must be between 3 and 9.")
         self.sample_points = sample_points
+        self.sample_grid_size = sample_grid_size
         self.timesteps = timesteps
         self.horizon_hours = horizon_hours
         self._reference: RasterGrid | None = None
@@ -653,6 +686,12 @@ class MetOfficeSiteForecastRainfallSource(RealTimeAPISource):
         return {
             "retrieved_at": datetime.now(timezone.utc).isoformat(),
             "stations": forecasts,
+            "sampling": {
+                "method": "regular_grid" if self.sample_points is None else "explicit_points",
+                "grid_size": self.sample_grid_size if self.sample_points is None else None,
+                "requested_point_count": len(points),
+                "returned_point_count": len(forecasts),
+            },
             "prototype_note": (
                 "Met Office SiteSpecificForecast point forecasts sampled across the study area; "
                 "rainfall grid is IDW interpolation of maximum hourly totalPrecipAmount within the forecast horizon."
@@ -679,17 +718,8 @@ class MetOfficeSiteForecastRainfallSource(RealTimeAPISource):
     def _default_sample_points(self, reference: RasterGrid) -> list[tuple[float, float]]:
         transform = reference.profile["transform"]
         height, width = reference.data.shape
-        sample_pixels = [
-            (0.50, 0.50),
-            (0.25, 0.25),
-            (0.25, 0.75),
-            (0.75, 0.25),
-            (0.75, 0.75),
-            (0.50, 0.25),
-            (0.50, 0.75),
-            (0.25, 0.50),
-            (0.75, 0.50),
-        ]
+        fractions = np.linspace(0.1, 0.9, self.sample_grid_size)
+        sample_pixels = [(fx, fy) for fy in fractions for fx in fractions]
         xs: list[float] = []
         ys: list[float] = []
         for fx, fy in sample_pixels:

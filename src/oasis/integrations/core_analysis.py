@@ -16,6 +16,7 @@ import rasterio
 
 from core_analyst.analysts.data_zone_assessment import run_data_zone_flood_priority_assessment
 from core_analyst.data_registry import build_core_data_registry, write_core_data_registry
+from core_analyst.data_sources import MemoizedDataSource
 from core_analyst.workflows.generalized_analysis import plan_generalized_analysis
 from core_analyst.workflows.extensible_hazard import run_extensible_hazard
 from core_analyst.coastal_dynamic import (
@@ -39,7 +40,10 @@ from core_analyst.tools.agent_tools import (
 )
 from core_analyst.utils.config import load_config
 from core_analyst.utils.visualization import create_debug_visualization
-from core_analyst.workflows.oasis_real_data import build_historical_hydrological_sources
+from core_analyst.workflows.oasis_real_data import (
+    build_historical_hydrological_sources,
+    build_oasis_input_sources,
+)
 from core_analyst.workflows.multi_hazard import combine_hazard_maps
 
 from oasis.integrations.current_hazard import CoreAnalystCurrentHazard
@@ -79,6 +83,7 @@ class CoreAnalystAnalysisService:
         config_dir: Path,
         current_hazard: CoreAnalystCurrentHazard,
         current_hazard_raster_path: Path,
+        metoffice_sample_grid_size: int = 5,
         publisher: GeoServerPublisher | None = None,
     ) -> None:
         self._input_dir = input_dir
@@ -86,6 +91,7 @@ class CoreAnalystAnalysisService:
         self._config_dir = config_dir
         self._current_hazard = current_hazard
         self._current_hazard_raster_path = current_hazard_raster_path
+        self._metoffice_sample_grid_size = metoffice_sample_grid_size
         self._publisher = publisher
         self._memo: dict[str, AnalysisRunSummary] = {}
 
@@ -454,6 +460,20 @@ class CoreAnalystAnalysisService:
         root = self._output_dir / "all_hazards" / run_id
         root.mkdir(parents=True, exist_ok=False)
         hazard_results: dict[str, dict[str, Any]] = {}
+        rainfall_observation = None
+        rainfall_forecast = None
+        if use_live_data:
+            rainfall_observation = MemoizedDataSource(build_oasis_input_sources(
+                self._input_dir,
+                rainfall_source="sepa",
+                sepa_station_numbers=["auto"],
+            )["rainfall"])
+            rainfall_forecast = MemoizedDataSource(build_oasis_input_sources(
+                self._input_dir,
+                rainfall_source="metoffice-site",
+                metoffice_horizon_hours=forecast_horizon,
+                metoffice_sample_grid_size=self._metoffice_sample_grid_size,
+            )["rainfall"])
         for hazard_type in ("pluvial", "fluvial", "coastal"):
             scenario_results = await asyncio.to_thread(
                 run_hazard_scenarios,
@@ -463,6 +483,8 @@ class CoreAnalystAnalysisService:
                 output_dir=root / "hazard",
                 forecast_horizon=forecast_horizon,
                 use_live_data=use_live_data,
+                rainfall_observation_source=rainfall_observation,
+                rainfall_forecast_source=rainfall_forecast,
             )
             for scenario, result in scenario_results.items():
                 hazard_results[f"{hazard_type}_{scenario}"] = result
@@ -597,8 +619,37 @@ class CoreAnalystAnalysisService:
             hazards = self._load(all_hazards_run_id)
         hazard_path = hazards.get("outputs", {}).get(f"combined_{scenario}_hazard_class")
         if not hazard_path:
-            raise ValueError(
-                f"All-hazards run {all_hazards_run_id} has no combined {scenario} hazard raster"
+            run_id = self._new_run_id()
+            reason = (
+                f"All-hazards run {all_hazards_run_id} has no combined {scenario} "
+                "hazard raster because one or more component hazards are unavailable."
+            )
+            return self._persist(
+                run_id,
+                "flood_priority_assessment",
+                {
+                    "status": "unavailable",
+                    "summary": {
+                        "assessment_type": "data_zone_flood_priority",
+                        "scenario": scenario,
+                        "reason": reason,
+                        "all_hazards_run_id": all_hazards_run_id,
+                        "available_hazards": hazards.get("summary", {}).get("available_hazards", []),
+                        "unavailable_hazards": hazards.get("summary", {}).get("unavailable_hazards", {}),
+                    },
+                    "outputs": {},
+                    "provenance": {
+                        "all_hazards_run_id": all_hazards_run_id,
+                        "use_live_data": use_live_data,
+                        "forecast_horizon_hours": forecast_horizon,
+                    },
+                    "warnings": [
+                        {
+                            "code": "combined_hazard_unavailable",
+                            "message": reason,
+                        }
+                    ],
+                },
             )
 
         prepared = await asyncio.to_thread(

@@ -358,10 +358,25 @@ async function runAgentTurn(prompt) {
     body: JSON.stringify({ prompt, state: sessionState })
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || "The tool-using Agent is unavailable.");
+    const body = await response.text();
+    let detail = body;
+    try {
+      detail = JSON.parse(body).detail || body;
+    } catch {
+      // Keep the plain HTTP response body.
+    }
+    throw new Error(detail || `Agent API request failed with HTTP ${response.status}.`);
   }
   return response.json();
+}
+
+async function agentApiReachable() {
+  try {
+    const response = await fetch("http://127.0.0.1:8000/health");
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function escapeHtml(value) {
@@ -541,7 +556,11 @@ async function askAgent(prompt) {
   } catch (error) {
     typing.remove();
     let message = "The tool-using Agent is unavailable.";
-    if (error instanceof TypeError) message = "Cannot connect to the Agent API at 127.0.0.1:8000.";
+    if (error instanceof TypeError) {
+      message = await agentApiReachable()
+        ? "The Agent API is online, but this request failed inside the analysis workflow."
+        : "Cannot connect to the Agent API at 127.0.0.1:8000.";
+    }
     else if (error instanceof Error) message = error.message;
     addMessage("agent", message);
   } finally {

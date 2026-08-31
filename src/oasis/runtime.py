@@ -46,6 +46,7 @@ def build_analysis_service(settings: Settings, *, publish: bool = True) -> CoreA
         config_dir=settings.core_analyst_config_dir,
         current_hazard=current_hazard,
         current_hazard_raster_path=settings.current_hazard_raster_path,
+        metoffice_sample_grid_size=settings.metoffice_sample_grid_size,
         publisher=publisher,
     )
 

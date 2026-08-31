@@ -44,8 +44,16 @@ example uses a hosted OpenAI API:
 OASIS_MODEL=openai:gpt-5-mini
 OPENAI_API_KEY=your-provider-key
 METOFFICE_SITE_API_KEY=your-met-office-site-specific-key
+OASIS_METOFFICE_SAMPLE_GRID_SIZE=5
 # ADMIRALTY_API_KEY=your-admiralty-tidal-key
 ```
+
+`OASIS_METOFFICE_SAMPLE_GRID_SIZE` controls the square SiteSpecific forecast
+sampling grid. The default `5` requests 25 points once per all-hazards run and
+shares the resulting rainfall grid across pluvial, fluvial, and coastal models.
+Valid values are 3–9; denser grids improve spatial sampling but consume more API
+quota. This point sampling plus IDW interpolation remains a prototype substitute
+for a native gridded rainfall or radar product.
 
 For the CARTO basemap, create its separate ignored browser configuration:
 

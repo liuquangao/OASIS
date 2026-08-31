@@ -19,6 +19,7 @@ class Settings(BaseModel):
     mimo_api_key: SecretStr | None = None
     mimo_base_url: str = "https://api.xiaomimimo.com/v1"
     http_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    metoffice_sample_grid_size: int = Field(default=5, ge=3, le=9)
     user_agent: str = "oasis-geoagent/0.1"
     default_area: str = "glasgow"
     geoserver_wms_url: str = (
@@ -62,6 +63,9 @@ class Settings(BaseModel):
             ),
             http_timeout_seconds=float(
                 os.getenv("OASIS_HTTP_TIMEOUT_SECONDS", "30")
+            ),
+            metoffice_sample_grid_size=int(
+                os.getenv("OASIS_METOFFICE_SAMPLE_GRID_SIZE", "5")
             ),
             user_agent=os.getenv("OASIS_USER_AGENT", "oasis-geoagent/0.1"),
             default_area=os.getenv("OASIS_DEFAULT_AREA", "glasgow"),

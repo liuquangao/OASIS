@@ -14,7 +14,7 @@ from core_analyst.analysts.priority_analysis import (
 from core_analyst.analysts.temporal_reference_flood import TemporalReferenceFloodAnalyst
 from core_analyst.analysts.vulnerability_analysis import run_vulnerability_analysis as _run_vulnerability
 from core_analyst.coastal_dynamic import CoastalDynamicConfig, build_coastal_dynamic_evidence
-from core_analyst.data_sources import MockRainfallAPISource, SEPAWaterLevelAPISource
+from core_analyst.data_sources import DataSource, MockRainfallAPISource, SEPAWaterLevelAPISource
 from core_analyst.study_area import load_glasgow_1km_buffer_bounds
 from core_analyst.utils.config import load_config
 from core_analyst.workflows.oasis_real_data import (
@@ -100,6 +100,8 @@ def run_hazard_scenarios(
     sepa_buffer_meters: float = 0.0,
     water_level_buffer_meters: float = 0.0,
     use_live_data: bool = False,
+    rainfall_observation_source: DataSource | None = None,
+    rainfall_forecast_source: DataSource | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Run one hazard model once and return its current and future outputs."""
 
@@ -122,6 +124,8 @@ def run_hazard_scenarios(
                 forecast_horizon=forecast_horizon,
                 sepa_buffer_meters=sepa_buffer_meters,
                 use_live_data=use_live_data,
+                rainfall_observation_source=rainfall_observation_source,
+                rainfall_forecast_source=rainfall_forecast_source,
             )
         else:
             result = _run_temporal_hazard(
@@ -131,6 +135,8 @@ def run_hazard_scenarios(
                 forecast_horizon=forecast_horizon,
                 water_level_buffer_meters=water_level_buffer_meters,
                 use_live_data=use_live_data,
+                rainfall_observation_source=rainfall_observation_source,
+                rainfall_forecast_source=rainfall_forecast_source,
             )
     except Exception as exc:
         failure = _failure("run_hazard_scenarios", parameters, exc)
@@ -379,19 +385,18 @@ def _run_pluvial_hazard(
     forecast_horizon: int,
     sepa_buffer_meters: float,
     use_live_data: bool,
+    rainfall_observation_source: DataSource | None = None,
+    rainfall_forecast_source: DataSource | None = None,
 ) -> dict[str, Any]:
     config = load_config(_config_path("pluvial_prediction_config.yaml"))
     static_sources = build_oasis_input_sources(input_dir, rainfall_source="mock")
     if use_live_data:
-        observed = build_oasis_input_sources(
-            input_dir,
-            rainfall_source="sepa",
-            sepa_station_numbers=["auto"],
+        observed = rainfall_observation_source or build_oasis_input_sources(
+            input_dir, rainfall_source="sepa", sepa_station_numbers=["auto"],
             sepa_buffer_meters=sepa_buffer_meters,
         )["rainfall"]
-        forecast = build_oasis_input_sources(
-            input_dir,
-            rainfall_source="metoffice-site",
+        forecast = rainfall_forecast_source or build_oasis_input_sources(
+            input_dir, rainfall_source="metoffice-site",
             metoffice_horizon_hours=forecast_horizon,
         )["rainfall"]
     else:
@@ -414,6 +419,8 @@ def _run_temporal_hazard(
     forecast_horizon: int,
     water_level_buffer_meters: float,
     use_live_data: bool,
+    rainfall_observation_source: DataSource | None = None,
+    rainfall_forecast_source: DataSource | None = None,
 ) -> dict[str, Any]:
     config = load_config(_config_path(f"{hazard_type}_prediction_config.yaml"))
     high_sources = build_reference_flood_sources(input_dir, hazard_type=hazard_type, scenario="high")
@@ -423,14 +430,11 @@ def _run_temporal_hazard(
     rainfall_observation = None
     rainfall_forecast = None
     if use_live_data:
-        rainfall_observation = build_oasis_input_sources(
-            input_dir,
-            rainfall_source="sepa",
-            sepa_station_numbers=["auto"],
+        rainfall_observation = rainfall_observation_source or build_oasis_input_sources(
+            input_dir, rainfall_source="sepa", sepa_station_numbers=["auto"],
         )["rainfall"]
-        rainfall_forecast = build_oasis_input_sources(
-            input_dir,
-            rainfall_source="metoffice-site",
+        rainfall_forecast = rainfall_forecast_source or build_oasis_input_sources(
+            input_dir, rainfall_source="metoffice-site",
             metoffice_horizon_hours=forecast_horizon,
         )["rainfall"]
     study_area_bounds = load_glasgow_1km_buffer_bounds(input_dir)

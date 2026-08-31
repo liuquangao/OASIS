@@ -111,6 +111,7 @@ def build_oasis_input_sources(
     sepa_include_hourly_history: bool = False,
     sepa_history_hours: int = 6,
     metoffice_horizon_hours: int = 6,
+    metoffice_sample_grid_size: int = 5,
     use_glasgow_1km_buffer_boundary: bool = True,
 ):
     input_dir = Path(input_dir)
@@ -172,7 +173,10 @@ def build_oasis_input_sources(
             history_hours=sepa_history_hours,
         )
     elif rainfall_source == "metoffice-site":
-        rainfall = MetOfficeSiteForecastRainfallSource(horizon_hours=metoffice_horizon_hours)
+        rainfall = MetOfficeSiteForecastRainfallSource(
+            horizon_hours=metoffice_horizon_hours,
+            sample_grid_size=metoffice_sample_grid_size,
+        )
     else:
         rainfall = MockRainfallAPISource(multiplier=rainfall_multiplier)
 

@@ -69,6 +69,8 @@ async def run_map_turn(request: MapTurnRequest) -> MapAgentResponse:
         else:
             detail = "An external service required by the Agent is unavailable."
         raise HTTPException(status_code=502, detail=detail) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/analysis/runs/{run_id}")

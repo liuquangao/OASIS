@@ -143,9 +143,13 @@ async def test_all_hazards_reports_unavailable_inputs_without_crashing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = []
+    observation_sources = []
+    forecast_sources = []
 
     def unavailable_hazard_scenarios(**kwargs):
         calls.append(kwargs["hazard_type"])
+        observation_sources.append(kwargs["rainfall_observation_source"])
+        forecast_sources.append(kwargs["rainfall_forecast_source"])
         return {
             scenario: {
                 "status": "failed",
@@ -176,6 +180,39 @@ async def test_all_hazards_reports_unavailable_inputs_without_crashing(
     assert result.map_layers == []
     assert len(result.warnings) == 6
     assert calls == ["pluvial", "fluvial", "coastal"]
+    assert observation_sources[0] is observation_sources[1] is observation_sources[2]
+    assert forecast_sources[0] is forecast_sources[1] is forecast_sources[2]
+
+
+async def test_priority_assessment_reports_missing_combined_hazard_without_crashing(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    all_hazards = service._persist(
+        "abcdef123456",
+        "all_hazards",
+        {
+            "status": "partial",
+            "summary": {
+                "available_hazards": ["fluvial_future", "coastal_future"],
+                "unavailable_hazards": {"pluvial_future": "forecast unavailable"},
+            },
+            "outputs": {},
+            "warnings": [],
+        },
+    )
+
+    result = await service.run_flood_priority_assessment(
+        all_hazards_run_id=all_hazards.run_id,
+    )
+
+    assert result.status == "unavailable"
+    assert result.map_layers == []
+    assert result.summary["all_hazards_run_id"] == all_hazards.run_id
+    assert result.summary["unavailable_hazards"] == {
+        "pluvial_future": "forecast unavailable"
+    }
+    assert result.warnings[0].code == "combined_hazard_unavailable"
 
 
 def test_hazard_class_statistics_report_area_distribution(tmp_path: Path) -> None:
