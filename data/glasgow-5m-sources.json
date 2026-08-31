@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "profile": "glasgow-5m-exact",
+  "analysis_grid": {
+    "crs": "EPSG:27700",
+    "bounds": [249424.0, 655461.5, 271434.0, 674071.5],
+    "resolution_m": 5.0,
+    "width": 4402,
+    "height": 3722
+  },
+  "legacy_edge_patch": {
+    "path": "data/glasgow-dtm-edge-patch.csv",
+    "cells": 3924,
+    "bytes": 74638,
+    "sha256": "25e8cdf3d83544504a0fc4371d58ce883100307ab08de77678f83c124173e43b",
+    "reason": "Preserves undocumented Glasgow_Mosaic edge coverage and ArcGIS mask selection."
+  },
+  "sources": {
+    "terrain": {
+      "dataset": "Scottish Public Sector LiDAR Phase 5 with Phase 3 gap fills, 0.5 m DTM",
+      "base_url": "https://srsp-open-data.s3.eu-west-2.amazonaws.com/",
+      "prefix": "lidar/phase-5/dtm/27700/gridded/",
+      "licence": "Open Government Licence 3.0",
+      "tiles": {
+        "NS45NE": [24661137, "754a95a94f9ced31ca856de6dafb5913-3"],
+        "NS46NE": [372531842, "7e94d206ed7a53804855720e42d0dbdf-45"],
+        "NS46SE": [297027083, "8fd11410d5dd4b49bb0a4e22830eb5d9-36"],
+        "NS47SE": [386393835, "6c84162c4815c58cfdde4022b84bc2b4-47"],
+        "NS55NE": [426602334, "24f486adf8fb57ab9d77b378ca6f6fe0-51"],
+        "NS55NW": [325617042, "8d6a54db9dcc4c06a02bde34075da96e-39"],
+        "NS56NE": [423632234, "7cf6efcb78b4c27df69735504c7a2e14-51"],
+        "NS56NW": [399688284, "4881977f06bda74f95e2198eb2d6e8c8-48"],
+        "NS56SE": [413651306, "a1539bb3e2dfae73ce2cb1ca11ebe668-50"],
+        "NS56SW": [407014441, "2a8ada1a563e9d9a3f0cc21734d7f640-49"],
+        "NS57SE": [407052238, "27d4c2ee32ddab41fb3e8e1ef85fe4a4-49"],
+        "NS57SW": [427678635, "b36ad29596bbb299e2d17de4a547234a-51"],
+        "NS65NE": [126650810, "664fa89854cae7634e37fc5126f25165-16"],
+        "NS65NW": [247121045, "24961029445f851901ceeda84c48fcb2-30"],
+        "NS66NE": [401220209, "8cd8641d4882d00c5732a56939a9cb04-48"],
+        "NS66NW": [410931892, "395f031342a2d766b956da2dc02d9381-49"],
+        "NS66SE": [407280636, "078faefc31c6908c20f4ce291870b4a2-49"],
+        "NS66SW": [408176055, "ed4e6fab369fdc721488f5def438bfa6-49"],
+        "NS67SE": [412215139, "ab9b4fc700e1b5235b970f0c35d9ad6f-50"],
+        "NS67SW": [399087440, "a4535336c9ec171b03ccb0bbdaf7c1d3-48"],
+        "NS75NW": [263649107, "38c07df5910e4bb67657ce174304fb14-32"],
+        "NS76NW": [414071312, "877aa595e0d9d76c58412db497d282e9-50"],
+        "NS76SW": [415919704, "49a4992a60c44fe440cd341c23e1fe4b-50"],
+        "NS77SW": [413584418, "64bd81c573669b83dff44d7abb9b5d11-50"]
+      },
+      "supplemental_tiles": {
+        "lidar/phase-3/dtm/27700/gridded/NS55NE_50CM_DTM_PHASE3.tif": [154138575, "bb2a59f5055a60882ec6f4d612a1405a-19"],
+        "lidar/phase-3/dtm/27700/gridded/NS65NW_50CM_DTM_PHASE3.tif": [363511995, "150c7db890f428be7358dbc157f39b26-44"]
+      }
+    },
+    "land_cover": {
+      "dataset": "UKCEH Land Cover Map 2019, 25 m rasterised land parcels, GB",
+      "doi": "10.5285/f15289da-6424-4a5e-bd92-48c4d9c830cc",
+      "required_filename": "gb2019lcm25m.tif",
+      "order_url": "https://order-eidc.ceh.ac.uk/resources/1GYPT1HZ/order",
+      "licence_url": "https://eidc.ac.uk/licences/lcm-raster/plain",
+      "redistributable": false
+    },
+    "os": {
+      "api": "https://api.os.uk/downloads/v1/products",
+      "products": {
+        "OpenMapLocal": {"version": "2026-04", "area": "NS", "format": "ESRI® Shapefile", "file": "opmplc_essh_ns.zip", "bytes": 95432063, "md5": "1299d5c7efaef7de89ab16d588949b1f"},
+        "OpenGreenspace": {"version": "2026-04", "area": "NS", "format": "ESRI® Shapefile", "file": "opgrsp_essh_ns.zip", "bytes": 1926411, "md5": "65d0bd9b2391c7f02fba4da3b1880b7a"},
+        "OpenRivers": {"version": "2026-04", "area": "GB", "format": "ESRI® Shapefile", "file": "oprvrs_essh_gb.zip", "bytes": 39539833, "md5": "d01ddb6f0f6eb8446ec6093dd88c734e"}
+      },
+      "licence": "Open Government Licence 3.0"
+    },
+    "sepa": {
+      "dataset": "SEPA Flood Maps v3.0",
+      "query_url": "https://map.sepa.org.uk/server/rest/services/Open/Flood_Maps/MapServer/{layer}/query",
+      "layers": {"river_high": 0, "river_medium": 1, "river_low": 2, "coastal_high": 6, "coastal_medium": 7, "coastal_low": 8},
+      "licence": "Open Government Licence 3.0"
+    },
+    "census_2022": {
+      "url": "https://www.scotlandscensus.gov.uk/media/zz8620251217_10_04_asdfsfgbsdtbbjutiui465in/Datazone2022.zip",
+      "bytes": 88351131,
+      "etag": "1dd18ddbd0ac51b"
+    },
+    "simd_2020v2": {
+      "url": "https://www.gov.scot/binaries/content/documents/govscot/publications/statistics/2020/01/scottish-index-of-multiple-deprivation-2020-indicator-data/documents/simd_2020_indicators/simd_2020_indicators/govscot%3Adocument/SIMD%2B2020v2%2B-%2Bindicators.xlsx",
+      "bytes": 2499212
+    },
+    "data_zone_boundaries_2022": {
+      "url": "https://maps.gov.scot/ATOM/shapefiles/SG_DataZoneBdry_2022.zip",
+      "bytes": 26251513
+    },
+    "oa_dz_lookup_2022": {
+      "url": "https://www.nrscotland.gov.uk/media/iz3evrqt/oa22_dz22_iz22.zip",
+      "bytes": 237841
+    },
+    "oa_population_2022": {
+      "url": "https://www.nrscotland.gov.uk/media/owpknvgk/outputarea2022_usualresidentpopulation.csv",
+      "bytes": 678338
+    },
+    "nrfa": {
+      "api": "https://nrfaapps.ceh.ac.uk/nrfa/ws/time-series",
+      "stations": [84001, 84005, 84008, 84012, 84013, 84015, 84019, 84023, 84025, 84026, 84030, 84032, 84033, 84035],
+      "licence_url": "https://nrfa.ceh.ac.uk/costs-terms-and-conditions"
+    }
+  }
+}

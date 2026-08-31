@@ -14,6 +14,12 @@ from oasis.data_bootstrap import bootstrap_glasgow_open_data, result_dict
 from oasis.domain.areas import list_supported_areas, resolve_area
 from oasis.integrations.sepa import SepaTimeSeriesClient
 from oasis.runtime import build_analysis_service, run_agent
+from oasis.reproducible_data import (
+    preflight_exact_data,
+    rebuild_glasgow_5m,
+    result_dict as exact_result_dict,
+    verify_glasgow_5m,
+)
 from oasis.settings import Settings
 
 
@@ -94,6 +100,27 @@ async def _run(args: argparse.Namespace) -> int:
         _json(result_dict(result))
         return 0
 
+    if args.command == "data" and args.data_command == "preflight":
+        _json(preflight_exact_data(args.lcm2019, accept_licences=args.accept_licences))
+        return 0
+
+    if args.command == "data" and args.data_command == "rebuild":
+        result = await asyncio.to_thread(
+            rebuild_glasgow_5m,
+            args.input_dir or settings.core_analyst_input_dir,
+            lcm2019=args.lcm2019,
+            cache_dir=args.cache_dir,
+            accept_licences=args.accept_licences,
+            force=args.force,
+            user_agent=settings.user_agent,
+        )
+        _json(exact_result_dict(result))
+        return 0
+
+    if args.command == "data" and args.data_command == "verify":
+        _json(verify_glasgow_5m(args.input_dir or settings.core_analyst_input_dir))
+        return 0
+
     if args.tool_command == "area":
         area = resolve_area(args.place)
         _json(area)
@@ -166,6 +193,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Replace files previously created by this bootstrap profile.",
     )
+    preflight = data_sub.add_parser(
+        "preflight",
+        help="Check licences and the manually obtained UKCEH file before large downloads.",
+    )
+    preflight.add_argument("--lcm2019", type=str)
+    preflight.add_argument("--accept-licences", action="store_true")
+
+    rebuild = data_sub.add_parser(
+        "rebuild",
+        help="Rebuild the source-faithful Glasgow 5 m analysis inputs.",
+    )
+    rebuild.add_argument("--lcm2019", required=True, type=str)
+    rebuild.add_argument("--input-dir", type=str)
+    rebuild.add_argument("--cache-dir", type=str)
+    rebuild.add_argument("--accept-licences", action="store_true")
+    rebuild.add_argument("--force", action="store_true")
+
+    verify = data_sub.add_parser("verify", help="Verify the exact Glasgow 5 m input contract.")
+    verify.add_argument("--input-dir", type=str)
 
     tool = sub.add_parser("tool", help="Run deterministic tools without an LLM.")
     tool_sub = tool.add_subparsers(dest="tool_command", required=True)
