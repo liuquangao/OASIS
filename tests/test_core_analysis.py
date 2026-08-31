@@ -133,6 +133,30 @@ async def test_live_current_pluvial_run_reuses_existing_sepa_pipeline(tmp_path: 
     assert result.warnings[0].message == "prototype"
 
 
+async def test_all_hazards_reports_unavailable_inputs_without_crashing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unavailable_hazard(**kwargs):
+        hazard = f"{kwargs['hazard_type']}_{kwargs['scenario']}"
+        return {
+            "status": "failed",
+            "summary": {"error": f"Forecast input unavailable for {hazard}."},
+            "outputs": {},
+            "warnings": [{"code": "forecast_unavailable", "message": f"No input for {hazard}."}],
+        }
+
+    monkeypatch.setattr("oasis.integrations.core_analysis.run_hazard_analysis", unavailable_hazard)
+
+    result = await _service(tmp_path).run_all_hazards(use_live_data=True, forecast_horizon=24)
+
+    assert result.status == "unavailable"
+    assert result.summary["available_hazards"] == []
+    assert len(result.summary["unavailable_hazards"]) == 6
+    assert result.map_layers == []
+    assert len(result.warnings) == 6
+
+
 async def test_priority_run_requires_explicit_unit_scores_and_persists_result(tmp_path: Path) -> None:
     service = _service(tmp_path)
     units = [

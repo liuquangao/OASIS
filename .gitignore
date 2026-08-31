@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .runtime/
+webgis/frontend/config.local.js
 
 # Large local Core Analyst geodatabase and generated rasters.
 analysis/core-analyst/Input/

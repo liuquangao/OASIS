@@ -97,7 +97,72 @@ population, building, facility, geography, Census, or SIMD inputs are missing.
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -e ".[dev]"
+Copy-Item .env.example .env
 ```
+
+## External API keys
+
+Two API keys are needed for the complete browser experience and 24-hour
+pluvial forecast workflow. Neither key should be committed to Git.
+
+### 1. CARTO Basemaps API key
+
+The Leaflet map uses CARTO Voyager as its visual basemap. CARTO now requires a
+basemap key; without it, the tiles display an `API KEY REQUIRED` watermark.
+This key affects only the background map and does not affect flood calculations.
+
+1. Request a free key at
+   [CARTO Basemaps API Keys](https://carto.com/basemaps/apikey/).
+2. Register `localhost` and `127.0.0.1` for local development, one domain per
+   line. Add the deployed website domain before publishing the application.
+3. Create the ignored local configuration from the supplied example:
+
+   ```powershell
+   Copy-Item webgis/frontend/config.local.example.js webgis/frontend/config.local.js
+   ```
+
+4. Set the issued key in `webgis/frontend/config.local.js`:
+
+   ```javascript
+   window.OASIS_CONFIG = {
+     cartoBasemapKey: "your-carto-basemap-key"
+   };
+   ```
+
+The free basemap service currently includes up to five million tile requests
+per calendar month. Keep both CARTO and OpenStreetMap attribution visible. If
+old watermarked tiles remain after adding the key, force-refresh the browser to
+clear its tile cache. `config.local.js` is ignored by this repository.
+
+### 2. Met Office Site-Specific Forecast API key
+
+The future-pluvial workflow samples Met Office hourly point forecasts and
+interpolates the forecast precipitation over the Glasgow analysis grid. Without
+this key, current SEPA rainfall observations, fluvial analysis, and coastal
+analysis still work, but future rainfall and surface-water flood risk remain
+unavailable and the 24-hour report is marked as partial.
+
+1. Register at the
+   [Met Office Weather DataHub](https://datahub.metoffice.gov.uk/).
+2. Choose a Site-Specific forecast product and subscribe to a suitable plan.
+   The [Site-Specific pricing page](https://datahub.metoffice.gov.uk/pricing/site-specific)
+   includes free entry plans.
+3. Copy the API key shown when the subscription is created. Weather DataHub
+   also lists credentials under **My Subscriptions**.
+4. Add the key to the repository-root `.env` file:
+
+   ```dotenv
+   METOFFICE_SITE_API_KEY=your-met-office-site-specific-key
+   ```
+
+5. Restart the Agent API, then verify the full workflow:
+
+   ```powershell
+   oasis all-hazards --forecast-horizon-hours 24 --no-publish
+   ```
+
+The key must belong to the subscribed Site-Specific product; the separate Met
+Office Atmospheric, Map Images, and NSWWS warning keys do not replace it.
 
 ## CLI
 

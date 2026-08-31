@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,10 +9,10 @@ from typing import Any
 
 import numpy as np
 import rasterio
-from rasterio.features import shapes
+from rasterio.features import geometry_mask
 from rasterio.warp import transform_geom
+from rasterio.windows import Window, from_bounds, transform as window_transform
 from shapely.geometry import mapping, shape
-from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 from core_analyst.data_sources import DataSource, RasterGrid, write_raster
@@ -158,7 +159,8 @@ class ExposureAnalyst:
         }
 
         exposed_mask = self.hazard_mask(hazard.data, self.hazard_threshold)
-        hazard_footprint = self._hazard_footprint(hazard, exposed_mask, warnings)
+        if not exposed_mask.any():
+            warnings.append({"code": "empty_hazard_footprint", "message": "No pixels meet the exposure threshold."})
 
         population = self._population_exposure(
             exposure_sources.get("population"),
@@ -172,7 +174,7 @@ class ExposureAnalyst:
         buildings = self._vector_count_exposure(
             exposure_sources.get("buildings"),
             hazard,
-            hazard_footprint,
+            exposed_mask,
             "buildings",
             output_dir,
             outputs,
@@ -182,7 +184,7 @@ class ExposureAnalyst:
         critical = self._critical_infrastructure_exposure(
             exposure_sources.get("critical_infrastructure"),
             hazard,
-            hazard_footprint,
+            exposed_mask,
             output_dir,
             outputs,
             provenance,
@@ -242,24 +244,6 @@ class ExposureAnalyst:
             "nodata": hazard.profile.get("nodata"),
         }
 
-    def _hazard_footprint(self, hazard: RasterGrid, exposed_mask: np.ndarray, warnings: list[dict[str, str]]):
-        if not exposed_mask.any():
-            warnings.append({"code": "empty_hazard_footprint", "message": "No pixels meet the exposure threshold."})
-            return None
-        geometries = [
-            shape(geometry)
-            for geometry, value in shapes(
-                exposed_mask.astype("uint8"),
-                mask=exposed_mask,
-                transform=hazard.profile["transform"],
-            )
-            if int(value) == 1
-        ]
-        if not geometries:
-            warnings.append({"code": "empty_hazard_footprint", "message": "Hazard mask produced no vector footprint."})
-            return None
-        return unary_union(geometries)
-
     def _population_exposure(
         self,
         source: Any,
@@ -273,7 +257,7 @@ class ExposureAnalyst:
         if source is None:
             return self._unavailable("population", "population_dataset_not_available", provenance, warnings)
         if self._is_vector_source(source):
-            return self._population_vector_exposure(source, hazard, hazard_footprint=None, provenance=provenance, warnings=warnings)
+            return self._population_vector_exposure(source, hazard, exposed_mask, provenance, warnings)
         try:
             grid = self._read_population_grid(source, hazard)
         except Exception as exc:
@@ -314,15 +298,13 @@ class ExposureAnalyst:
         self,
         source: Any,
         hazard: RasterGrid,
-        hazard_footprint: Any,
+        exposed_mask: np.ndarray,
         provenance: dict[str, Any],
         warnings: list[dict[str, str]],
     ) -> dict[str, Any]:
         collection = self._read_vector_source(source, "population", provenance, warnings)
         if collection is None:
             return {"total": None, "exposed": None, "exposure_ratio": None, "status": "unavailable"}
-        exposed_mask = self.hazard_mask(hazard.data, self.hazard_threshold)
-        footprint = hazard_footprint or self._hazard_footprint(hazard, exposed_mask, warnings)
 
         total = 0.0
         exposed = 0.0
@@ -339,7 +321,7 @@ class ExposureAnalyst:
             if geometry is None:
                 continue
             total += value
-            if footprint is not None and geometry.intersects(footprint):
+            if self._intersects_exposed_cells(geometry, hazard, exposed_mask):
                 exposed += value
         ratio = None if total <= 0 else exposed / total
         return {"total": total, "exposed": exposed, "exposure_ratio": ratio, "status": "available"}
@@ -384,7 +366,7 @@ class ExposureAnalyst:
         self,
         source: Any,
         hazard: RasterGrid,
-        hazard_footprint: Any,
+        exposed_mask: np.ndarray,
         source_key: str,
         output_dir: Path,
         outputs: dict[str, str],
@@ -404,7 +386,7 @@ class ExposureAnalyst:
             if geometry is None:
                 continue
             total += 1
-            if hazard_footprint is not None and geometry.intersects(hazard_footprint):
+            if self._intersects_exposed_cells(geometry, hazard, exposed_mask):
                 exposed_features.append({
                     "type": "Feature",
                     "geometry": transform_geom(str(hazard.profile["crs"]), "EPSG:4326", mapping(geometry)),
@@ -422,7 +404,7 @@ class ExposureAnalyst:
         self,
         source: Any,
         hazard: RasterGrid,
-        hazard_footprint: Any,
+        exposed_mask: np.ndarray,
         output_dir: Path,
         outputs: dict[str, str],
         provenance: dict[str, Any],
@@ -453,7 +435,7 @@ class ExposureAnalyst:
             facility_type = str(feature.properties.get(self.critical_type_field, "unknown"))
             categories_seen.add(facility_type)
             total += 1
-            if hazard_footprint is not None and geometry.intersects(hazard_footprint):
+            if self._intersects_exposed_cells(geometry, hazard, exposed_mask):
                 exposed += 1
                 by_type[facility_type] = by_type.get(facility_type, 0) + 1
                 exposed_features.append({
@@ -507,7 +489,7 @@ class ExposureAnalyst:
             "feature_count": len(collection.features),
             "metadata": collection.metadata,
             "spatial_qa": {},
-            "processing_operation": "vector_intersection_with_hazard_footprint",
+            "processing_operation": "vector_intersection_with_exposed_raster_cells",
             "source_geography": collection.metadata.get("geographic_unit", "vector_features"),
             "target_geography": "hazard_raster_footprint",
             "aggregation_method": "feature_intersection_count" if source_key != "population" else "polygon_total_intersection",
@@ -534,7 +516,7 @@ class ExposureAnalyst:
         self,
         collection: VectorFeatureCollection,
         hazard: RasterGrid,
-        hazard_footprint: Any,
+        exposed_mask: np.ndarray,
         source_key: str,
         warnings: list[dict[str, str]],
     ) -> tuple[int, int]:
@@ -545,9 +527,36 @@ class ExposureAnalyst:
             if geometry is None:
                 continue
             total += 1
-            if hazard_footprint is not None and geometry.intersects(hazard_footprint):
+            if self._intersects_exposed_cells(geometry, hazard, exposed_mask):
                 exposed += 1
         return total, exposed
+
+    def _intersects_exposed_cells(
+        self,
+        geometry: Any,
+        hazard: RasterGrid,
+        exposed_mask: np.ndarray,
+    ) -> bool:
+        window = from_bounds(*geometry.bounds, transform=hazard.profile["transform"])
+        col_start = max(0, math.floor(window.col_off))
+        row_start = max(0, math.floor(window.row_off))
+        col_stop = min(exposed_mask.shape[1], math.ceil(window.col_off + window.width))
+        row_stop = min(exposed_mask.shape[0], math.ceil(window.row_off + window.height))
+        if col_start >= col_stop or row_start >= row_stop:
+            return False
+
+        candidate = exposed_mask[row_start:row_stop, col_start:col_stop]
+        if not candidate.any():
+            return False
+        local_window = Window(col_start, row_start, col_stop - col_start, row_stop - row_start)
+        covered = geometry_mask(
+            [mapping(geometry)],
+            out_shape=candidate.shape,
+            transform=window_transform(local_window, hazard.profile["transform"]),
+            invert=True,
+            all_touched=True,
+        )
+        return bool(np.any(candidate & covered))
 
     def _feature_geometry(
         self,

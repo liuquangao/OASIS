@@ -8,22 +8,16 @@
     <meta http-equiv="Expires" content="0" />
     <title>Hydromind Flood Risk Assessment System</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="./demo.css?v=20260817-calculated-only" />
+    <link rel="stylesheet" href="./demo.css?v=20260828-risk-report" />
   </head>
   <body>
     <div id="demo-map"></div>
 
-    <header class="demo-header">
-      <div class="brand">
-        <div class="brand-icon" aria-hidden="true">◈</div>
-        <div>
-          <h1>Hydromind Flood Risk Assessment System</h1>
-          <p>AI-Powered Spatial Intelligence</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <span class="demo-pill">Demo Mode</span>
-        <button id="fullscreen-btn" class="ghost-button" type="button">Fullscreen</button>
+    <header class="app-bar">
+      <div class="app-mark" aria-hidden="true">O</div>
+      <div>
+        <h1>OASIS GeoAgent</h1>
+        <p>Glasgow flood intelligence</p>
       </div>
     </header>
 
@@ -42,10 +36,10 @@
       aria-controls="agent-panel"
       aria-expanded="false"
     >
-      <span aria-hidden="true">‹</span> Agent
+      <span aria-hidden="true">‹</span>
     </button>
 
-    <section id="agent-panel" class="agent-panel" aria-label="Hydromind risk agent">
+    <section id="agent-panel" class="agent-panel" aria-label="Map conversation">
       <div
         id="agent-resizer"
         class="agent-resizer"
@@ -57,50 +51,68 @@
         title="Drag to resize the Agent panel"
         tabindex="0"
       ></div>
-      <header class="agent-header">
-        <div>
-          <h2>Hydromind Risk Agent</h2>
-          <p>Autonomous geospatial tool agent</p>
-        </div>
-        <div class="agent-header-actions">
-          <span id="agent-status" class="agent-status">Checking…</span>
+      <header class="conversation-header">
+        <div class="panel-tabs" role="tablist" aria-label="Result views">
           <button
-            id="agent-collapse-btn"
-            class="agent-collapse-button"
+            id="conversation-tab"
+            class="panel-tab active"
             type="button"
-            aria-label="Collapse Agent panel to the right"
-            title="Collapse Agent panel"
-          >
-            ›
-          </button>
+            role="tab"
+            aria-selected="true"
+            aria-controls="conversation-view"
+          >Conversation</button>
+          <button
+            id="risk-report-tab"
+            class="panel-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="risk-report-view"
+            disabled
+          >Risk report<span class="report-ready-dot" aria-hidden="true"></span></button>
         </div>
+        <button
+          id="agent-collapse-btn"
+          class="agent-collapse-button"
+          type="button"
+          aria-label="Collapse conversation panel"
+          title="Collapse panel"
+        >
+          ›
+        </button>
       </header>
 
-      <div id="agent-history" class="agent-history">
-        <article class="message agent">
-          <span>Agent</span>
-          <p>I can choose and combine location, nearby-place, raster-query, and map tools to complete your request.</p>
-        </article>
+      <div id="conversation-view" class="conversation-view" role="tabpanel" aria-labelledby="conversation-tab">
+        <div id="agent-history" class="agent-history"></div>
+
+        <div class="prompt-row">
+          <button class="prompt-chip" type="button" data-prompt="Refresh and show the current flood risk of G2 8JB">Current risk at G2 8JB</button>
+          <button class="prompt-chip" type="button" data-prompt="What is the flood risk across Glasgow for the next 24 hours?">Next 24 hours</button>
+          <button class="prompt-chip" type="button" data-prompt="Compare lower flood-risk driving routes from Glasgow Central Station to the University of Glasgow">Compare A→B routes</button>
+          <button class="prompt-chip" type="button" data-prompt="Find railway stations within 2 km with a higher flood hazard class than this location">Nearby higher-risk stations</button>
+          <button class="prompt-chip" type="button" data-prompt="Only show the higher-risk places">Keep higher risk</button>
+          <button class="prompt-chip" type="button" data-prompt="Explain the evidence for the highest one">Explain</button>
+        </div>
+
+        <form id="agent-form" class="agent-form">
+          <input
+            id="agent-input"
+            type="text"
+            autocomplete="off"
+            placeholder="Ask about a place, compare routes, or control the map…"
+            aria-label="Ask the map agent to locate a postcode or place"
+          />
+          <button type="submit">Send</button>
+        </form>
       </div>
 
-      <div class="prompt-row">
-        <button class="prompt-chip" type="button" data-prompt="Refresh and show the current flood risk of G2 8JB">Current risk at G2 8JB</button>
-        <button class="prompt-chip" type="button" data-prompt="Compare lower flood-risk driving routes from Glasgow Central Station to the University of Glasgow">Compare A→B routes</button>
-        <button class="prompt-chip" type="button" data-prompt="Find railway stations within 2 km with a higher flood hazard class than this location">Nearby higher-risk stations</button>
-        <button class="prompt-chip" type="button" data-prompt="Only show the higher-risk places">Keep higher risk</button>
-        <button class="prompt-chip" type="button" data-prompt="Explain the evidence for the highest one">Explain</button>
-      </div>
-
-      <form id="agent-form" class="agent-form">
-        <input
-          id="agent-input"
-          type="text"
-          autocomplete="off"
-          placeholder="Ask about a place, compare routes, or control the map…"
-          aria-label="Ask the map agent to locate a postcode or place"
-        />
-        <button type="submit">Send</button>
-      </form>
+      <section
+        id="risk-report-view"
+        class="risk-report-view"
+        role="tabpanel"
+        aria-labelledby="risk-report-tab"
+        hidden
+      ></section>
     </section>
 
     <aside id="legend-card" class="legend-card" aria-label="Hazard legend">
@@ -115,6 +127,7 @@
     </aside>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="./demo.js?v=20260827-analysis-layers"></script>
+    <script src="./config.local.js?v=20260830-carto-key"></script>
+    <script src="./demo.js?v=20260830-carto-key"></script>
   </body>
 </html>

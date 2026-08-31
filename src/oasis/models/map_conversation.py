@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -44,6 +44,27 @@ class RememberedLocation(BaseModel):
     hazard_warnings: list[str] = Field(default_factory=list)
 
 
+class RiskReportEvidence(BaseModel):
+    label: str
+    value: str
+    source: str
+    observed_at: datetime | None = None
+    source_url: str | None = None
+
+
+class RiskReport(BaseModel):
+    title: str
+    question: str
+    area: str
+    time_horizon: str
+    overall_risk: Literal["high", "medium", "low", "mixed", "unknown"]
+    summary: str
+    key_findings: list[str] = Field(default_factory=list, max_length=6)
+    evidence: list[RiskReportEvidence] = Field(default_factory=list, max_length=8)
+    limitations: list[str] = Field(default_factory=list, max_length=6)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class MapSessionState(BaseModel):
     locations: list[RememberedLocation] = Field(default_factory=list)
     visible_location_ids: list[str] = Field(default_factory=list)
@@ -53,6 +74,7 @@ class MapSessionState(BaseModel):
     hazard_layer_visible: bool = False
     analysis_layers: list[AnalysisMapLayer] = Field(default_factory=list)
     visible_analysis_layer_ids: list[str] = Field(default_factory=list)
+    risk_report: RiskReport | None = None
     last_task: Literal["locate", "risk", "nearby", "route"] | None = None
 
 
@@ -78,6 +100,7 @@ class MapEvent(BaseModel):
 
 class MapAgentAnswer(BaseModel):
     message: str
+    risk_report: RiskReport | str | None = None
 
 
 class MapAgentResponse(BaseModel):

@@ -4,11 +4,12 @@ const HAZARD_BOUNDS = [
   [55.942438044680635, -4.051210467294865]
 ];
 const HAZARD_WMS_URL = "http://127.0.0.1:8080/geoserver/glasgow_flood/wms";
+const CARTO_BASEMAP_KEY = window.OASIS_CONFIG.cartoBasemapKey;
 
 const map = L.map("demo-map", { center: GLASGOW, zoom: 13, zoomControl: false });
 
 L.tileLayer(
-  "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+  `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(CARTO_BASEMAP_KEY)}`,
   {
     maxZoom: 19,
     subdomains: "abcd",
@@ -48,8 +49,98 @@ let sessionState = {
   hazard_layer_visible: false,
   analysis_layers: [],
   visible_analysis_layer_ids: [],
+  risk_report: null,
   last_task: null
 };
+
+const conversationTab = document.getElementById("conversation-tab");
+const riskReportTab = document.getElementById("risk-report-tab");
+const conversationView = document.getElementById("conversation-view");
+const riskReportView = document.getElementById("risk-report-view");
+
+function textElement(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  element.textContent = text;
+  return element;
+}
+
+function setPanelView(view) {
+  const showReport = view === "report" && Boolean(sessionState.risk_report);
+  conversationView.hidden = showReport;
+  riskReportView.hidden = !showReport;
+  conversationTab.classList.toggle("active", !showReport);
+  riskReportTab.classList.toggle("active", showReport);
+  conversationTab.setAttribute("aria-selected", String(!showReport));
+  riskReportTab.setAttribute("aria-selected", String(showReport));
+}
+
+function renderRiskReport(report) {
+  riskReportView.replaceChildren();
+  riskReportTab.disabled = !report;
+  riskReportTab.classList.toggle("ready", Boolean(report));
+  if (!report) {
+    setPanelView("conversation");
+    return;
+  }
+
+  const article = document.createElement("article");
+  article.className = `risk-report risk-${report.overall_risk}`;
+  const header = document.createElement("header");
+  header.className = "report-heading";
+  const headingCopy = document.createElement("div");
+  headingCopy.append(
+    textElement("span", "report-kicker", `${report.area} · ${report.time_horizon}`),
+    textElement("h2", "", report.title),
+    textElement("p", "report-question", report.question)
+  );
+  header.append(headingCopy, textElement("span", "report-risk-badge", report.overall_risk));
+  article.append(header, textElement("p", "report-summary", report.summary));
+
+  if (report.key_findings?.length) {
+    const section = document.createElement("section");
+    section.appendChild(textElement("h3", "", "Key findings"));
+    const list = document.createElement("ul");
+    report.key_findings.forEach((finding) => list.appendChild(textElement("li", "", finding)));
+    section.appendChild(list);
+    article.appendChild(section);
+  }
+
+  if (report.evidence?.length) {
+    const section = document.createElement("section");
+    section.appendChild(textElement("h3", "", "Evidence"));
+    const evidenceList = document.createElement("div");
+    evidenceList.className = "report-evidence-list";
+    report.evidence.forEach((item) => {
+      const evidence = document.createElement("div");
+      evidence.className = "report-evidence";
+      evidence.append(
+        textElement("span", "", item.label),
+        textElement("strong", "", item.value),
+        textElement("small", "", item.observed_at ? `${item.source} · ${new Date(item.observed_at).toLocaleString()}` : item.source)
+      );
+      evidenceList.appendChild(evidence);
+    });
+    section.appendChild(evidenceList);
+    article.appendChild(section);
+  }
+
+  if (report.limitations?.length) {
+    const section = document.createElement("section");
+    section.className = "report-limitations";
+    section.appendChild(textElement("h3", "", "Limitations"));
+    const list = document.createElement("ul");
+    report.limitations.forEach((limitation) => list.appendChild(textElement("li", "", limitation)));
+    section.appendChild(list);
+    article.appendChild(section);
+  }
+
+  article.appendChild(textElement("footer", "report-footer", `Generated ${new Date(report.generated_at).toLocaleString()}`));
+  riskReportView.appendChild(article);
+}
+
+conversationTab.addEventListener("click", () => setPanelView("conversation"));
+riskReportTab.addEventListener("click", () => setPanelView("report"));
 
 function analysisLayerById(id) {
   return sessionState.analysis_layers.find((layer) => layer.id === id);
@@ -203,41 +294,17 @@ function updateHazardLegend() {
   legend.classList.toggle("visible", sessionState.hazard_layer_visible);
 }
 
-function addMessage(role, text, typing = false, meta = "") {
+function addMessage(role, text, typing = false) {
   const history = document.getElementById("agent-history");
   const message = document.createElement("article");
   message.className = `message ${role}${typing ? " typing" : ""}`;
-  const sender = document.createElement("span");
   const content = document.createElement("p");
-  sender.textContent = role === "user" ? "You" : "Agent";
   content.textContent = text;
-  message.append(sender, content);
-  if (meta) {
-    const detail = document.createElement("small");
-    detail.className = "tool-trace";
-    detail.textContent = meta;
-    message.appendChild(detail);
-  }
+  message.append(content);
   history.appendChild(message);
   history.scrollTop = history.scrollHeight;
   return message;
 }
-
-async function updateAgentStatus() {
-  const status = document.getElementById("agent-status");
-  try {
-    const response = await fetch("http://127.0.0.1:8000/health");
-    const health = await response.json();
-    const ready = response.ok && health.semantic_model === "configured";
-    status.textContent = ready ? "Online · tools ready" : "Needs model";
-    status.classList.toggle("warning", !ready);
-  } catch {
-    status.textContent = "Offline";
-    status.classList.add("warning");
-  }
-}
-
-updateAgentStatus();
 
 async function runAgentTurn(prompt) {
   const response = await fetch("http://127.0.0.1:8000/agent/turn", {
@@ -410,6 +477,7 @@ function applyMapEvents(events) {
 }
 
 async function askAgent(prompt) {
+  setPanelView("conversation");
   addMessage("user", prompt);
   const typing = addMessage("agent", "Choosing and running map tools…", true);
   const input = document.getElementById("agent-input");
@@ -420,11 +488,9 @@ async function askAgent(prompt) {
     const response = await runAgentTurn(prompt);
     sessionState = response.state;
     applyMapEvents(response.events);
+    renderRiskReport(sessionState.risk_report);
     typing.remove();
-    const trace = response.tools_used?.length
-      ? `Tools: ${response.tools_used.join(" → ")}`
-      : "";
-    addMessage("agent", response.message, false, trace);
+    addMessage("agent", response.message);
   } catch (error) {
     typing.remove();
     let message = "The tool-using Agent is unavailable.";
@@ -453,9 +519,4 @@ document.getElementById("agent-form").addEventListener("submit", (event) => {
 
 document.querySelectorAll(".prompt-chip").forEach((button) => {
   button.addEventListener("click", () => askAgent(button.dataset.prompt));
-});
-
-document.getElementById("fullscreen-btn").addEventListener("click", () => {
-  if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
-  else document.exitFullscreen?.();
 });

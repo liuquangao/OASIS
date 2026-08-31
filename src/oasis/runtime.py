@@ -20,7 +20,7 @@ from oasis.integrations.osrm import OsrmRoutingClient
 from oasis.integrations.raster_route_hazard import RasterRouteHazardAnalyzer
 from oasis.integrations.sepa import SepaTimeSeriesClient
 from oasis.models.agent_output import AgentOutput
-from oasis.models.map_conversation import MapAgentResponse, MapSessionState
+from oasis.models.map_conversation import MapAgentResponse, MapSessionState, RiskReport
 from oasis.settings import Settings
 
 
@@ -156,6 +156,12 @@ async def run_spatial_agent(
             user_input,
             deps=deps,
             model=selected_model,
+        )
+        report = result.output.risk_report
+        deps.state.risk_report = (
+            RiskReport.model_validate_json(report)
+            if isinstance(report, str)
+            else report
         )
         return MapAgentResponse(
             message=result.output.message,

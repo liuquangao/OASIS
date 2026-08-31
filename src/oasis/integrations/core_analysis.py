@@ -449,6 +449,7 @@ class CoreAnalystAnalysisService:
     ) -> AnalysisRunSummary:
         run_id = self._new_run_id()
         root = self._output_dir / "all_hazards" / run_id
+        root.mkdir(parents=True, exist_ok=False)
         hazard_results: dict[str, dict[str, Any]] = {}
         for hazard_type in ("pluvial", "fluvial", "coastal"):
             for scenario in ("current", "future"):
@@ -462,34 +463,60 @@ class CoreAnalystAnalysisService:
                     forecast_horizon=forecast_horizon,
                     use_live_data=use_live_data,
                 )
-                if result["status"] != "success":
-                    raise RuntimeError(result["summary"]["error"])
                 hazard_results[f"{hazard_type}_{scenario}"] = result
+
+        available = {
+            key: result
+            for key, result in hazard_results.items()
+            if result.get("status") in {"success", "success_with_warnings"}
+            and result.get("outputs", {}).get("hazard_class")
+        }
         combined: dict[str, dict[str, Any]] = {}
         for scenario in ("current", "future"):
-            combined[scenario] = await asyncio.to_thread(
-                combine_hazard_maps,
-                {name: hazard_results[f"{name}_{scenario}"] for name in ("pluvial", "fluvial", "coastal")},
-                root / "combined" / scenario,
-                scenario=scenario,
-            )
+            scenario_results = {
+                name: available[f"{name}_{scenario}"]
+                for name in ("pluvial", "fluvial", "coastal")
+                if f"{name}_{scenario}" in available
+            }
+            if len(scenario_results) == 3:
+                combined[scenario] = await asyncio.to_thread(
+                    combine_hazard_maps,
+                    scenario_results,
+                    root / "combined" / scenario,
+                    scenario=scenario,
+                )
         rasters = {
-            f"{hazard.title()} {scenario.title()}": hazard_results[f"{hazard}_{scenario}"]["outputs"]["hazard_class"]
-            for scenario in ("current", "future")
-            for hazard in ("pluvial", "fluvial", "coastal")
+            key.replace("_", " ").title(): result["outputs"]["hazard_class"]
+            for key, result in available.items()
         }
         rasters.update({
             f"Combined {scenario.title()}": combined[scenario]["outputs"]["hazard_class"]
-            for scenario in ("current", "future")
+            for scenario in combined
         })
-        comparison = root / "all_hazards_classes.png"
-        await asyncio.to_thread(create_debug_visualization, rasters, comparison)
+        comparison = root / "all_hazards_classes.png" if rasters else None
+        if comparison:
+            await asyncio.to_thread(create_debug_visualization, rasters, comparison)
         registry = await asyncio.to_thread(build_core_data_registry, self._input_dir)
         historical = await asyncio.to_thread(build_historical_hydrological_sources, self._input_dir)
+        failures = {
+            key: result.get("summary", {}).get("error")
+            or result.get("summary", {}).get("reason")
+            or result.get("status", "unavailable")
+            for key, result in hazard_results.items()
+            if key not in available
+        }
+        status = "success" if not failures else "partial" if available else "unavailable"
+        outputs = {
+            **{f"{key}_hazard_class": value["outputs"]["hazard_class"] for key, value in available.items()},
+            **{f"combined_{key}_hazard_class": value["outputs"]["hazard_class"] for key, value in combined.items()},
+        }
+        if comparison:
+            outputs["comparison_image"] = str(comparison)
         raw = {
-            "status": "success",
+            "status": status,
             "summary": {
-                "hazards": list(hazard_results),
+                "available_hazards": list(available),
+                "unavailable_hazards": failures,
                 "combined_scenarios": list(combined),
                 "data_registry_status_counts": {
                     status: sum(item.get("status") == status for item in registry)
@@ -499,11 +526,7 @@ class CoreAnalystAnalysisService:
             },
             "hazard_results": hazard_results,
             "combined_results": combined,
-            "outputs": {
-                **{f"{key}_hazard_class": value["outputs"]["hazard_class"] for key, value in hazard_results.items()},
-                **{f"combined_{key}_hazard_class": value["outputs"]["hazard_class"] for key, value in combined.items()},
-                "comparison_image": str(comparison),
-            },
+            "outputs": outputs,
             "provenance": {"tool": "run_all_hazards", "use_live_data": use_live_data},
             "warnings": [warning for result in hazard_results.values() for warning in result.get("warnings", [])],
         }

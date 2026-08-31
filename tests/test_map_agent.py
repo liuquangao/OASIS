@@ -8,7 +8,11 @@ from pydantic import SecretStr
 from oasis.agent import spatial_agent
 from oasis.api import app
 from oasis.deps import MapAgentDeps
-from oasis.models.map_conversation import MapSessionState, RememberedLocation
+from oasis.models.map_conversation import (
+    MapSessionState,
+    RememberedLocation,
+    RiskReport,
+)
 from oasis.runtime import _select_model, run_spatial_agent
 from oasis.settings import Settings
 from oasis.toolsets.rainfall import get_latest_rainfall_near_location
@@ -92,6 +96,35 @@ async def test_spatial_agent_returns_updated_session_envelope() -> None:
     assert output.message == "The existing point remains available."
     assert output.state.active_location_id == "location-1"
     assert output.events == []
+
+
+async def test_spatial_agent_persists_structured_risk_report() -> None:
+    report = RiskReport(
+        title="Glasgow flood risk",
+        question="What is the flood risk tomorrow?",
+        area="Glasgow",
+        time_horizon="Next 24 hours",
+        overall_risk="unknown",
+        summary="Forecast evidence is unavailable.",
+        limitations=["No forecast dataset was returned."],
+    )
+    model = TestModel(
+        call_tools=[],
+        custom_output_args={
+            "message": "The forecast risk is unknown.",
+            "risk_report": report.model_dump_json(),
+        },
+    )
+
+    output = await run_spatial_agent(
+        "What is the flood risk tomorrow?",
+        MapSessionState(),
+        model=model,
+    )
+
+    assert output.state.risk_report is not None
+    assert output.state.risk_report.overall_risk == "unknown"
+    assert output.state.risk_report.time_horizon == "Next 24 hours"
 
 
 def test_api_requires_a_live_semantic_model(monkeypatch) -> None:
