@@ -26,6 +26,7 @@ from core_analyst.validators.raster_validator import RasterValidator
 from core_analyst.workflows.oasis_real_data import build_oasis_input_sources
 
 from oasis.domain.hazard import interpret_hazard_class
+from oasis.integrations.geoserver import GeoServerPublisher
 from oasis.models.current_hazard import CurrentHazardSnapshot
 from oasis.models.hazard import HazardLookupResult
 
@@ -47,6 +48,7 @@ class CoreAnalystCurrentHazard:
         raster_path: Path,
         wms_url: str,
         layer: str,
+        publisher: GeoServerPublisher | None = None,
     ) -> None:
         self._input_dir = input_dir
         self._config_path = config_path
@@ -55,6 +57,7 @@ class CoreAnalystCurrentHazard:
         self._metadata_path = output_dir / "analysis_metadata.json"
         self._wms_url = wms_url
         self._layer = layer
+        self._publisher = publisher
 
     async def refresh(self) -> CurrentHazardSnapshot:
         return await asyncio.to_thread(self._refresh_sync)
@@ -133,7 +136,7 @@ class CoreAnalystCurrentHazard:
             ),
             dtype="uint8",
         )
-        temporary_raster.replace(self._raster_path)
+        self._publish_and_replace(temporary_raster)
 
         observations = observed.metadata["observations"]
         station_times = [
@@ -161,6 +164,16 @@ class CoreAnalystCurrentHazard:
         temporary_metadata.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         temporary_metadata.replace(self._metadata_path)
         return self._snapshot()
+
+    def _publish_and_replace(self, temporary_raster: Path) -> None:
+        if self._publisher is not None:
+            layer_name = self._layer.rsplit(":", 1)[-1]
+            self._publisher.publish_raster(
+                temporary_raster,
+                name=layer_name,
+                label="Current pluvial hazard snapshot",
+            )
+        temporary_raster.replace(self._raster_path)
 
     def _snapshot(self) -> CurrentHazardSnapshot:
         if not self._raster_path.is_file() or not self._metadata_path.is_file():

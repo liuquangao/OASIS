@@ -26,6 +26,12 @@ from oasis.settings import Settings
 
 
 def build_analysis_service(settings: Settings, *, publish: bool = True) -> CoreAnalystAnalysisService:
+    publisher = GeoServerPublisher(
+        settings.geoserver_rest_url,
+        settings.geoserver_wms_url,
+        settings.geoserver_user,
+        settings.geoserver_password.get_secret_value(),
+    ) if publish else None
     current_hazard = CoreAnalystCurrentHazard(
         input_dir=settings.core_analyst_input_dir,
         config_path=settings.core_analyst_config_path,
@@ -33,13 +39,8 @@ def build_analysis_service(settings: Settings, *, publish: bool = True) -> CoreA
         raster_path=settings.current_hazard_raster_path,
         wms_url=settings.geoserver_wms_url,
         layer=settings.current_hazard_layer,
+        publisher=publisher,
     )
-    publisher = GeoServerPublisher(
-        settings.geoserver_rest_url,
-        settings.geoserver_wms_url,
-        settings.geoserver_user,
-        settings.geoserver_password.get_secret_value(),
-    ) if publish else None
     return CoreAnalystAnalysisService(
         input_dir=settings.core_analyst_input_dir,
         output_dir=settings.core_analyst_analysis_output_dir,
