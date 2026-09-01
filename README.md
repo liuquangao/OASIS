@@ -101,6 +101,36 @@ oasis data verify
 The expected final result is `"ok": true`. Generated inputs and raw caches are
 Git-ignored; `REPRODUCIBILITY_MANIFEST.json` records sources and checksums.
 
+### Website startup preflight and automatic preparation
+
+The WebGIS calls `POST /setup/initialize` when it opens. Before enabling the
+conversation controls, the startup panel:
+
+- runs the same complete `oasis data verify` contract used by the CLI;
+- reports whether the language model, Met Office forecast, optional ADMIRALTY,
+  and browser-side CARTO configuration are present without exposing key values;
+- automatically downloads and processes missing anonymous social-risk inputs
+  when the existing core dataset makes that repair possible; and
+- polls a background initialization job until verification succeeds or an
+  actionable failure is returned.
+
+A complete rebuild is deliberately gated because UKCEH LCM 2019 requires a
+personal download and explicit licence acceptance. To let the webpage start
+that rebuild automatically, add these ignored local settings and restart the
+Agent API:
+
+```dotenv
+OASIS_LCM2019_PATH=/absolute/path/to/gb2019lcm25m.tif
+OASIS_ACCEPT_DATA_LICENCES=true
+OASIS_AUTO_PREPARE_DATA=true
+```
+
+The build may download about 9.5 GB. It runs in the API background and reuses
+the normal `.oasis-data-cache`; refreshing the browser does not launch a second
+job. Set `OASIS_AUTO_PREPARE_DATA=false` to keep the status checks while running
+all data commands manually. `GET /setup/status` returns the same machine-readable
+state shown in the panel.
+
 The complete application now lives in this directory. The interactive map is
 `webgis/frontend/index.html`; its browser logic and styles are
 `webgis/frontend/demo.js` and `webgis/frontend/demo.css`. GeoServer files,

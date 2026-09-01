@@ -4,7 +4,8 @@ const HAZARD_BOUNDS = [
   [55.942438044680635, -4.051210467294865]
 ];
 const HAZARD_WMS_URL = "http://127.0.0.1:8080/geoserver/glasgow_flood/wms";
-const CARTO_BASEMAP_KEY = window.OASIS_CONFIG.cartoBasemapKey;
+const AGENT_API_URL = "http://127.0.0.1:8000";
+const CARTO_BASEMAP_KEY = window.OASIS_CONFIG?.cartoBasemapKey || "";
 
 const map = L.map("demo-map", { center: GLASGOW, zoom: 13, zoomControl: false });
 
@@ -40,6 +41,8 @@ const agentOpenButton = document.getElementById("agent-open-btn");
 const AGENT_MIN_WIDTH = 320;
 const AGENT_MAX_WIDTH = 720;
 let agentPanelWidth = 420;
+let setupCanUseAgent = false;
+let setupPollTimer = null;
 let sessionState = {
   locations: [],
   visible_location_ids: [],
@@ -351,8 +354,138 @@ function addMessage(role, text, typing = false) {
   return message;
 }
 
+function setAgentControlsDisabled(disabled) {
+  document.getElementById("agent-input").disabled = disabled;
+  document.querySelector("#agent-form button").disabled = disabled;
+  document.querySelectorAll(".prompt-chip").forEach((button) => {
+    button.disabled = disabled;
+  });
+}
+
+function setupItem(label, state, detail) {
+  const item = document.createElement("div");
+  item.className = `setup-item ${state}`;
+  const markerText = state === "ok" ? "✓" : state === "missing" ? "!" : "i";
+  const marker = textElement("span", "setup-item-marker", markerText);
+  const copy = document.createElement("div");
+  copy.append(textElement("strong", "", label), textElement("p", "", detail));
+  item.append(marker, copy);
+  return item;
+}
+
+function renderSetupStatus(status) {
+  const root = document.getElementById("setup-status");
+  const dot = document.getElementById("setup-status-dot");
+  const title = document.getElementById("setup-status-title");
+  const summary = document.getElementById("setup-status-summary");
+  const body = document.getElementById("setup-status-body");
+  body.replaceChildren();
+
+  const configuration = status.configuration.map((item) => ({ ...item }));
+  const carto = configuration.find((item) => item.id === "carto_basemap");
+  if (carto) {
+    carto.configured = Boolean(CARTO_BASEMAP_KEY && !CARTO_BASEMAP_KEY.startsWith("your-"));
+  }
+  const missing = configuration.filter((item) => item.configured === false);
+  const requiredMissing = missing.filter((item) => item.importance === "required");
+  const importantMissing = missing.filter((item) => item.importance !== "optional");
+  const isRunning = status.job.state === "running";
+
+  setupCanUseAgent = Boolean(status.can_use_agent && !requiredMissing.length);
+  setAgentControlsDisabled(!setupCanUseAgent);
+  root.className = `setup-status ${isRunning ? "initializing" : setupCanUseAgent ? "ready" : "attention"}`;
+  dot.className = `setup-status-dot ${isRunning ? "checking" : setupCanUseAgent ? "ready" : "attention"}`;
+
+  if (isRunning) {
+    title.textContent = "Preparing analysis data…";
+    summary.textContent = status.job.action === "rebuild_all"
+      ? "Downloading and building the complete Glasgow 5 m dataset"
+      : "Downloading and processing missing social-risk inputs";
+    body.appendChild(setupItem(
+      "Automatic data preparation",
+      "info",
+      "This runs in the API background. Cached downloads are reused after interruptions."
+    ));
+  } else if (setupCanUseAgent) {
+    title.textContent = missing.length ? "System ready · optional setup available" : "System ready";
+    summary.textContent = `${status.data.checked_files} analysis rasters verified · language model configured`;
+    body.appendChild(setupItem(
+      "Analysis data",
+      "ok",
+      `${status.data.profile} passed reproducibility verification.`
+    ));
+  } else {
+    title.textContent = "Setup required before analysis";
+    summary.textContent = status.data.status === "complete"
+      ? "Configure the language model"
+      : "Analysis data is incomplete";
+    if (status.data.automatic_action === "configure_lcm") {
+      body.appendChild(setupItem(
+        "Complete Glasgow data",
+        "missing",
+        "Set OASIS_LCM2019_PATH to your licensed gb2019lcm25m.tif and OASIS_ACCEPT_DATA_LICENCES=true, then restart the API. Anonymous official sources will be downloaded and processed automatically."
+      ));
+    }
+  }
+
+  configuration.forEach((item) => {
+    if (item.configured && item.importance !== "required") return;
+    const variables = item.environment_variables.join(", ");
+    const detail = item.configured
+      ? item.message
+      : `${item.message} Configure: ${variables}.`;
+    const state = item.configured ? "ok" : item.importance === "required" ? "missing" : "info";
+    body.appendChild(setupItem(item.label, state, detail));
+  });
+
+  if (status.job.state === "failed") {
+    body.appendChild(setupItem("Automatic preparation failed", "missing", status.job.error));
+  }
+  const button = textElement("button", "setup-recheck", isRunning ? "Refresh progress" : "Check again");
+  button.type = "button";
+  button.addEventListener("click", () => refreshSetup(!isRunning));
+  body.appendChild(button);
+  if (setupCanUseAgent && !importantMissing.length) root.open = false;
+}
+
+function renderSetupConnectionError() {
+  setupCanUseAgent = false;
+  setAgentControlsDisabled(true);
+  document.getElementById("setup-status").className = "setup-status attention";
+  document.getElementById("setup-status-dot").className = "setup-status-dot attention";
+  document.getElementById("setup-status-title").textContent = "Agent API is offline";
+  document.getElementById("setup-status-summary").textContent = "Start the API at 127.0.0.1:8000";
+  const body = document.getElementById("setup-status-body");
+  body.replaceChildren(setupItem(
+    "OASIS Agent API",
+    "missing",
+    "Run the OASIS API, then select Check again."
+  ));
+  const button = textElement("button", "setup-recheck", "Check again");
+  button.type = "button";
+  button.addEventListener("click", () => refreshSetup(true));
+  body.appendChild(button);
+}
+
+async function refreshSetup(initialize = false) {
+  if (setupPollTimer) window.clearTimeout(setupPollTimer);
+  try {
+    const response = await fetch(`${AGENT_API_URL}/setup/${initialize ? "initialize" : "status"}`, {
+      method: initialize ? "POST" : "GET"
+    });
+    if (!response.ok) throw new Error(`Setup check failed with HTTP ${response.status}`);
+    const status = await response.json();
+    renderSetupStatus(status);
+    if (status.job.state === "running") {
+      setupPollTimer = window.setTimeout(() => refreshSetup(false), 2500);
+    }
+  } catch {
+    renderSetupConnectionError();
+  }
+}
+
 async function runAgentTurn(prompt) {
-  const response = await fetch("http://127.0.0.1:8000/agent/turn", {
+  const response = await fetch(`${AGENT_API_URL}/agent/turn`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt, state: sessionState })
@@ -372,7 +505,7 @@ async function runAgentTurn(prompt) {
 
 async function agentApiReachable() {
   try {
-    const response = await fetch("http://127.0.0.1:8000/health");
+    const response = await fetch(`${AGENT_API_URL}/health`);
     return response.ok;
   } catch {
     return false;
@@ -539,6 +672,10 @@ function applyMapEvents(events) {
 }
 
 async function askAgent(prompt) {
+  if (!setupCanUseAgent) {
+    document.getElementById("setup-status").open = true;
+    return;
+  }
   setPanelView("conversation");
   addMessage("user", prompt);
   const typing = addMessage("agent", "Choosing and running map tools…", true);
@@ -564,9 +701,8 @@ async function askAgent(prompt) {
     else if (error instanceof Error) message = error.message;
     addMessage("agent", message);
   } finally {
-    input.disabled = false;
-    submit.disabled = false;
-    input.focus();
+    setAgentControlsDisabled(!setupCanUseAgent);
+    if (setupCanUseAgent) input.focus();
   }
 }
 
@@ -586,3 +722,5 @@ document.getElementById("agent-form").addEventListener("submit", (event) => {
 document.querySelectorAll(".prompt-chip").forEach((button) => {
   button.addEventListener("click", () => askAgent(button.dataset.prompt));
 });
+
+refreshSetup(true);

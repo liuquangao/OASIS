@@ -354,6 +354,140 @@ body.agent-collapsed .agent-open-button {
   display: none;
 }
 
+.setup-status {
+  flex: 0 0 auto;
+  margin: 10px 12px 0;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.96);
+}
+
+.setup-status.ready {
+  border-color: #a7d8bd;
+  background: #f0fdf4;
+}
+
+.setup-status.attention {
+  border-color: #f4c98b;
+  background: #fffbeb;
+}
+
+.setup-status.initializing {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.setup-status summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.setup-status summary::-webkit-details-marker {
+  display: none;
+}
+
+.setup-status summary > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.setup-status summary strong {
+  color: #1e293b;
+  font-size: 11px;
+}
+
+.setup-status summary small {
+  color: #64748b;
+  font-size: 9px;
+}
+
+.setup-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #f59e0b;
+}
+
+.setup-status-dot.ready {
+  background: #16a34a;
+}
+
+.setup-status-dot.checking {
+  background: #2563eb;
+  animation: setup-pulse 1.2s ease-in-out infinite;
+}
+
+.setup-status-body {
+  display: grid;
+  gap: 7px;
+  padding: 0 10px 10px;
+}
+
+.setup-item {
+  display: grid;
+  grid-template-columns: 19px minmax(0, 1fr);
+  gap: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(148, 163, 184, 0.26);
+}
+
+.setup-item-marker {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.setup-item.ok .setup-item-marker {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.setup-item.missing .setup-item-marker {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.setup-item strong {
+  color: #334155;
+  font-size: 10px;
+}
+
+.setup-item p {
+  margin: 2px 0 0;
+  color: #64748b;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.setup-recheck {
+  justify-self: start;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid #94a3b8;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+@keyframes setup-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .agent-history {
   flex: 1;
   overflow: auto;

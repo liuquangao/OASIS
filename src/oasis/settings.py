@@ -42,6 +42,9 @@ class Settings(BaseModel):
     core_analyst_analysis_output_dir: Path = Path(
         "analysis/core-analyst/outputs/agent"
     )
+    lcm2019_path: Path | None = None
+    accept_data_licences: bool = False
+    auto_prepare_data: bool = True
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
     osrm_url: str = "https://router.project-osrm.org"
 
@@ -121,6 +124,11 @@ class Settings(BaseModel):
                     "analysis/core-analyst/outputs/agent",
                 )
             ),
+            lcm2019_path=(
+                Path(value) if (value := os.getenv("OASIS_LCM2019_PATH")) else None
+            ),
+            accept_data_licences=_env_bool("OASIS_ACCEPT_DATA_LICENCES", False),
+            auto_prepare_data=_env_bool("OASIS_AUTO_PREPARE_DATA", True),
             nominatim_url=os.getenv(
                 "OASIS_NOMINATIM_URL",
                 "https://nominatim.openstreetmap.org/search",
@@ -139,4 +147,13 @@ class Settings(BaseModel):
             return self.mimo_api_key is not None
         if self.model_provider == "vllm":
             return self.openai_base_url is not None and self.openai_api_key is not None
+        if self.model.startswith("openai:"):
+            return self.openai_api_key is not None
         return True
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}

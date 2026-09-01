@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0" />
     <title>Hydromind Flood Risk Assessment System</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="./demo.css?v=20260831-report-layout" />
+    <link rel="stylesheet" href="./demo.css?v=20260901-setup-preflight" />
   </head>
   <body>
     <div id="demo-map"></div>
@@ -83,15 +83,25 @@
       </header>
 
       <div id="conversation-view" class="conversation-view" role="tabpanel" aria-labelledby="conversation-tab">
+        <details id="setup-status" class="setup-status" open>
+          <summary>
+            <span id="setup-status-dot" class="setup-status-dot checking" aria-hidden="true"></span>
+            <span>
+              <strong id="setup-status-title">Checking system setup…</strong>
+              <small id="setup-status-summary">Verifying local data and API configuration</small>
+            </span>
+          </summary>
+          <div id="setup-status-body" class="setup-status-body"></div>
+        </details>
         <div id="agent-history" class="agent-history"></div>
 
         <div class="prompt-row">
-          <button class="prompt-chip" type="button" data-prompt="Refresh and show the current flood risk of G2 8JB">Current risk at G2 8JB</button>
-          <button class="prompt-chip" type="button" data-prompt="What is the flood risk across Glasgow for the next 24 hours?">Next 24 hours</button>
-          <button class="prompt-chip" type="button" data-prompt="Compare lower flood-risk driving routes from Glasgow Central Station to the University of Glasgow">Compare A→B routes</button>
-          <button class="prompt-chip" type="button" data-prompt="Find railway stations within 2 km with a higher flood hazard class than this location">Nearby higher-risk stations</button>
-          <button class="prompt-chip" type="button" data-prompt="Only show the higher-risk places">Keep higher risk</button>
-          <button class="prompt-chip" type="button" data-prompt="Explain the evidence for the highest one">Explain</button>
+          <button class="prompt-chip" type="button" data-prompt="Refresh and show the current flood risk of G2 8JB" disabled>Current risk at G2 8JB</button>
+          <button class="prompt-chip" type="button" data-prompt="What is the flood risk across Glasgow for the next 24 hours?" disabled>Next 24 hours</button>
+          <button class="prompt-chip" type="button" data-prompt="Compare lower flood-risk driving routes from Glasgow Central Station to the University of Glasgow" disabled>Compare A→B routes</button>
+          <button class="prompt-chip" type="button" data-prompt="Find railway stations within 2 km with a higher flood hazard class than this location" disabled>Nearby higher-risk stations</button>
+          <button class="prompt-chip" type="button" data-prompt="Only show the higher-risk places" disabled>Keep higher risk</button>
+          <button class="prompt-chip" type="button" data-prompt="Explain the evidence for the highest one" disabled>Explain</button>
         </div>
 
         <form id="agent-form" class="agent-form">
@@ -101,8 +111,9 @@
             autocomplete="off"
             placeholder="Ask about a place, compare routes, or control the map…"
             aria-label="Ask the map agent to locate a postcode or place"
+            disabled
           />
-          <button type="submit">Send</button>
+          <button type="submit" disabled>Send</button>
         </form>
       </div>
 
@@ -128,6 +139,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="./config.local.js?v=20260830-carto-key"></script>
-    <script src="./demo.js?v=20260831-priority-assessment"></script>
+    <script src="./demo.js?v=20260901-setup-preflight"></script>
   </body>
 </html>

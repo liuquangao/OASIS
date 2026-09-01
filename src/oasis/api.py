@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from oasis.runtime import run_spatial_agent
 from oasis.settings import Settings
 from oasis.models.map_conversation import MapAgentResponse, MapSessionState
+from oasis.setup import setup_coordinator
 
 
 class MapTurnRequest(BaseModel):
@@ -45,6 +46,16 @@ async def health() -> dict[str, str]:
         "core_analysis": "enabled",
         "all_hazards": "enabled",
     }
+
+
+@app.get("/setup/status")
+async def setup_status() -> dict:
+    return setup_coordinator.status(Settings.from_env())
+
+
+@app.post("/setup/initialize")
+async def setup_initialize() -> dict:
+    return setup_coordinator.initialize(Settings.from_env())
 
 
 @app.post("/agent/turn", response_model=MapAgentResponse)
