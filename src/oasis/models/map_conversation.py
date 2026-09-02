@@ -53,6 +53,38 @@ class RiskReportEvidence(BaseModel):
     source_url: str | None = None
 
 
+class RiskReportDriver(BaseModel):
+    label: str
+    value: str
+    explanation: str
+    role: Literal["used", "context"] = "used"
+    source: str
+    observed_at: datetime | None = None
+
+
+class RiskReportContribution(BaseModel):
+    component: Literal["hazard", "exposure", "vulnerability"]
+    score: float
+    weight: float
+    contribution: float
+
+
+class RiskReportFinding(BaseModel):
+    area_id: str
+    name: str
+    rank: int
+    priority_score: float
+    explanation: str
+    facts: list[str] = Field(default_factory=list, max_length=5)
+    contributions: list[RiskReportContribution] = Field(default_factory=list, max_length=3)
+
+
+class RiskReportCalculation(BaseModel):
+    lens: str
+    formula: str
+    weights: dict[Literal["hazard", "exposure", "vulnerability"], float]
+
+
 class RiskReport(BaseModel):
     title: str
     question: str
@@ -61,6 +93,9 @@ class RiskReport(BaseModel):
     overall_risk: Literal["high", "medium", "low", "mixed", "unknown"]
     summary: str
     key_findings: list[str] = Field(default_factory=list, max_length=6)
+    drivers: list[RiskReportDriver] = Field(default_factory=list, max_length=8)
+    findings: list[RiskReportFinding] = Field(default_factory=list, max_length=6)
+    calculation: RiskReportCalculation | None = None
     evidence: list[RiskReportEvidence] = Field(default_factory=list, max_length=8)
     limitations: list[str] = Field(default_factory=list, max_length=6)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

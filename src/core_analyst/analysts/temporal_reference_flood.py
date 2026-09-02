@@ -41,9 +41,14 @@ class TemporalReferenceFloodAnalyst:
     ) -> dict[str, Any]:
         dem = dem_source.get_data()
         valid_mask = np.isfinite(dem.data)
-        baseline_high = self._reference_to_index(baseline_high_source.get_data(reference=dem).data, valid_mask)
-        baseline_medium = self._reference_to_index(baseline_medium_source.get_data(reference=dem).data, valid_mask)
-        baseline_low = self._reference_to_index(baseline_low_source.get_data(reference=dem).data, valid_mask)
+        baseline_grids = {
+            "baseline_high": baseline_high_source.get_data(reference=dem),
+            "baseline_medium": baseline_medium_source.get_data(reference=dem),
+            "baseline_low": baseline_low_source.get_data(reference=dem),
+        }
+        baseline_high = self._reference_to_index(baseline_grids["baseline_high"].data, valid_mask)
+        baseline_medium = self._reference_to_index(baseline_grids["baseline_medium"].data, valid_mask)
+        baseline_low = self._reference_to_index(baseline_grids["baseline_low"].data, valid_mask)
 
         static_layers, static_meta = self._read_forcings(static_forcings or {}, dem)
         current_layers, current_meta = self._read_forcings(current_forcings, dem)
@@ -74,9 +79,21 @@ class TemporalReferenceFloodAnalyst:
             "hazard_type": self.hazard_type,
             "analysis_method": "baseline_plus_temporal_forcing_mvp",
             "static_baseline": {
-                "baseline_high": "SEPA high-likelihood flood map, frequent baseline.",
-                "baseline_medium": "SEPA medium-likelihood flood map, central planning/reference baseline.",
-                "baseline_low": "SEPA low-likelihood flood map, rare/extreme envelope.",
+                "baseline_high": {
+                    "description": "SEPA high-likelihood flood map, frequent baseline.",
+                    "source_type": baseline_grids["baseline_high"].source_type,
+                    "metadata": baseline_grids["baseline_high"].metadata,
+                },
+                "baseline_medium": {
+                    "description": "SEPA medium-likelihood flood map, central planning/reference baseline.",
+                    "source_type": baseline_grids["baseline_medium"].source_type,
+                    "metadata": baseline_grids["baseline_medium"].metadata,
+                },
+                "baseline_low": {
+                    "description": "SEPA low-likelihood flood map, rare/extreme envelope.",
+                    "source_type": baseline_grids["baseline_low"].source_type,
+                    "metadata": baseline_grids["baseline_low"].metadata,
+                },
             },
             "static_forcings": static_meta,
             "current_forcings": current_meta,

@@ -267,6 +267,17 @@ async function rerankAssessment() {
       `hazard ${item.hazard_score?.toFixed(3) ?? "unavailable"}, exposure ${item.exposure_score?.toFixed(3) ?? "unavailable"}, ` +
       `vulnerability ${item.vulnerability_score?.toFixed(3) ?? "unavailable"}; rank change ${item.rank_change > 0 ? "+" : ""}${item.rank_change ?? "unavailable"}.`
     );
+    const previousFindings = new Map(
+      (sessionState.risk_report.findings || []).map((item) => [item.area_id, item])
+    );
+    sessionState.risk_report.findings = (payload.run.summary.top_areas || []).slice(0, 5).map((item) =>
+      reportFindingFromRank(item, preferences.weights, previousFindings.get(item.id))
+    );
+    sessionState.risk_report.calculation = {
+      lens: preferences.priority_scenario.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      formula: "priority = hazard × weight + exposure × weight + vulnerability × weight",
+      weights: preferences.weights
+    };
     sessionState.risk_report.evidence = [
       ...(sessionState.risk_report.evidence || []).filter((item) => item.label !== "Re-ranking run"),
       { label: "Re-ranking run", value: payload.run.run_id, source: "OASIS deterministic priority rerank", observed_at: null, source_url: null }
@@ -286,6 +297,30 @@ async function rerankAssessment() {
   assessmentStatusBadge.className = `decision-status ${payload.quality.status === "fail" ? "failed" : ""}`;
   renderAnalysisLayerControls();
   updateWeightDisplay();
+}
+
+function reportFindingFromRank(item, weights, previous) {
+  const contributions = ["hazard", "exposure", "vulnerability"].map((component) => ({
+    component,
+    score: item[`${component}_score`],
+    weight: weights[component],
+    contribution: item[`${component}_score`] * weights[component]
+  }));
+  const dominant = contributions.reduce((best, item) => item.contribution > best.contribution ? item : best);
+  const reasons = {
+    hazard: "the mapped flood hazard",
+    exposure: "the number of people, buildings and critical facilities exposed",
+    vulnerability: "the relative social vulnerability indicators"
+  };
+  return {
+    area_id: item.id,
+    name: item.name || item.id,
+    rank: item.rank,
+    priority_score: item.priority_score,
+    explanation: `Ranks #${item.rank} mainly because of ${reasons[dominant.component]}.`,
+    facts: previous?.facts || [],
+    contributions
+  };
 }
 
 function setPanelView(view) {
@@ -320,13 +355,94 @@ function renderRiskReport(report) {
   header.append(headingCopy, textElement("span", "report-risk-badge", report.overall_risk));
   article.append(header, textElement("p", "report-summary", report.summary));
 
-  if (report.key_findings?.length) {
+  if (report.drivers?.length) {
+    const section = document.createElement("section");
+    section.className = "report-driver-section";
+    section.appendChild(textElement("h3", "", "Why the hazard looks like this"));
+    const chain = document.createElement("div");
+    chain.className = "report-driver-chain";
+    report.drivers.forEach((driver, index) => {
+      const card = document.createElement("div");
+      card.className = `report-driver driver-${driver.role || "used"}`;
+      card.append(
+        textElement("span", "driver-step", String(index + 1).padStart(2, "0")),
+        textElement("strong", "", driver.label),
+        textElement("b", "", driver.value),
+        textElement("p", "", driver.explanation),
+        textElement("small", "", driver.observed_at
+          ? `${driver.source} · ${new Date(driver.observed_at).toLocaleString()}`
+          : driver.source)
+      );
+      chain.appendChild(card);
+    });
+    section.appendChild(chain);
+    article.appendChild(section);
+  }
+
+  if (report.findings?.length) {
+    const section = document.createElement("section");
+    section.appendChild(textElement("h3", "", "Why these areas rank highest"));
+    const cards = document.createElement("div");
+    cards.className = "report-finding-list";
+    report.findings.forEach((finding) => {
+      const details = document.createElement("details");
+      details.className = "report-finding";
+      const summary = document.createElement("summary");
+      summary.append(
+        textElement("span", "finding-rank", `#${finding.rank}`),
+        textElement("strong", "", finding.name),
+        textElement("span", "finding-score", finding.priority_score.toFixed(3)),
+        textElement("p", "", finding.explanation)
+      );
+      details.appendChild(summary);
+      const body = document.createElement("div");
+      body.className = "finding-detail";
+      if (finding.facts?.length) {
+        const facts = document.createElement("ul");
+        finding.facts.forEach((fact) => facts.appendChild(textElement("li", "", fact)));
+        body.appendChild(facts);
+      }
+      if (finding.contributions?.length) {
+        const contributions = document.createElement("div");
+        contributions.className = "finding-contributions";
+        finding.contributions.forEach((item) => {
+          const row = document.createElement("div");
+          row.append(
+            textElement("span", "", item.component),
+            textElement("span", "", `${item.score.toFixed(3)} × ${(item.weight * 100).toFixed(0)}%`),
+            textElement("strong", "", item.contribution.toFixed(3))
+          );
+          contributions.appendChild(row);
+        });
+        body.appendChild(contributions);
+      }
+      details.appendChild(body);
+      cards.appendChild(details);
+    });
+    section.appendChild(cards);
+    article.appendChild(section);
+  } else if (report.key_findings?.length) {
     const section = document.createElement("section");
     section.appendChild(textElement("h3", "", "Key findings"));
     const list = document.createElement("ul");
     report.key_findings.forEach((finding) => list.appendChild(textElement("li", "", finding)));
     section.appendChild(list);
     article.appendChild(section);
+  }
+
+  if (report.calculation) {
+    const details = document.createElement("details");
+    details.className = "report-calculation";
+    const summary = document.createElement("summary");
+    summary.textContent = `How the ${report.calculation.lens} score is calculated`;
+    details.appendChild(summary);
+    const weights = report.calculation.weights;
+    details.append(
+      textElement("p", "", report.calculation.formula),
+      textElement("p", "calculation-weights",
+        `Hazard ${(weights.hazard * 100).toFixed(0)}% · Exposure ${(weights.exposure * 100).toFixed(0)}% · Vulnerability ${(weights.vulnerability * 100).toFixed(0)}%`)
+    );
+    article.appendChild(details);
   }
 
   if (report.evidence?.length) {
@@ -346,6 +462,18 @@ function renderRiskReport(report) {
     });
     section.appendChild(evidenceList);
     article.appendChild(section);
+  }
+
+  if (report.limitations?.length) {
+    const details = document.createElement("details");
+    details.className = "report-limitations";
+    const summary = document.createElement("summary");
+    summary.textContent = "What to keep in mind";
+    details.appendChild(summary);
+    const list = document.createElement("ul");
+    report.limitations.forEach((item) => list.appendChild(textElement("li", "", item)));
+    details.appendChild(list);
+    article.appendChild(details);
   }
 
   article.appendChild(textElement("footer", "report-footer", `Generated ${new Date(report.generated_at).toLocaleString()}`));
@@ -401,6 +529,37 @@ function geoJsonStyle(feature, descriptor) {
   return { color: "#334155", weight: 1, fillColor: color, fillOpacity: 0.58 };
 }
 
+function analysisFeaturePopup(feature, descriptor) {
+  const properties = feature.properties || {};
+  const name = properties.name || properties.id || "Mapped area";
+  if (descriptor?.style !== "priority") {
+    const scoreKey = `${descriptor?.style || "priority"}_score`;
+    const score = properties[scoreKey];
+    return `<div class="analysis-popup"><strong>${escapeHtml(name)}</strong>` +
+      (score == null ? "" : `<p>Relative ${escapeHtml(descriptor.style)} score: <b>${Number(score).toFixed(3)}</b></p>`) +
+      "</div>";
+  }
+  const areaFraction = properties.hazardous_area_fraction;
+  const population = properties.estimated_exposed_population;
+  const buildings = properties.exposed_building_count;
+  const buildingTotal = properties.building_count;
+  const facts = [];
+  if (areaFraction != null) facts.push(`${(Number(areaFraction) * 100).toFixed(0)}% of classified area is in class 2 or 3`);
+  if (population != null) facts.push(`about ${Number(population).toLocaleString(undefined, { maximumFractionDigits: 0 })} residents exposed`);
+  if (buildings != null && buildingTotal != null) facts.push(`${Number(buildings).toFixed(0)} of ${Number(buildingTotal).toFixed(0)} buildings exposed`);
+  const scoreRows = ["hazard", "exposure", "vulnerability"].map((component) => {
+    const value = properties[`${component}_score`];
+    return value == null ? "" : `<span>${component}</span><b>${Number(value).toFixed(3)}</b>`;
+  }).join("");
+  return `<div class="analysis-popup priority-popup">` +
+    `<small>Priority #${escapeHtml(String(properties.priority_rank ?? "—"))}</small>` +
+    `<strong>${escapeHtml(name)}</strong>` +
+    `<p>${escapeHtml(facts.join("; ") || "Open the report for the calculation explanation.")}</p>` +
+    `<div class="popup-score-grid">${scoreRows}</div>` +
+    `<em>Priority ${properties.priority_score == null ? "—" : Number(properties.priority_score).toFixed(3)}</em>` +
+    `</div>`;
+}
+
 async function ensureAnalysisLayer(id) {
   if (analysisLayerObjects.has(id)) return analysisLayerObjects.get(id);
   const descriptor = analysisLayerById(id);
@@ -418,11 +577,7 @@ async function ensureAnalysisLayer(id) {
     const response = await fetch(descriptor.url);
     layer = L.geoJSON(await response.json(), {
       style: (feature) => geoJsonStyle(feature, descriptor),
-      onEachFeature: (feature, item) => item.bindPopup(
-        Object.entries(feature.properties || {}).map(([key, value]) =>
-          `<strong>${escapeHtml(key)}</strong>: ${escapeHtml(String(value))}`
-        ).join("<br>")
-      )
+      onEachFeature: (feature, item) => item.bindPopup(analysisFeaturePopup(feature, descriptor))
     });
   }
   analysisLayerObjects.set(id, layer);

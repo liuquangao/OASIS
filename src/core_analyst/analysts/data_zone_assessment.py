@@ -497,7 +497,12 @@ def _write_outputs(zones, output_dir, *, priority_scenario, scenario_summary, se
         "hazard_by_data_zone": ["hazard_score", "hazard_mean_class", "hazard_max_class", "hazardous_area_fraction"],
         "exposure_by_data_zone": ["exposure_score", "estimated_exposed_population", "exposed_building_count", "exposed_critical_facility_count"],
         "vulnerability_by_data_zone": ["vulnerability_score", "demographic_vulnerability", "socioeconomic_vulnerability", "accessibility_vulnerability"],
-        "priority_by_data_zone": ["priority_score", "priority_rank", "hazard_score", "exposure_score", "vulnerability_score"],
+        "priority_by_data_zone": [
+            "priority_score", "priority_rank", "hazard_score", "exposure_score",
+            "vulnerability_score", "hazardous_area_fraction",
+            "estimated_exposed_population", "building_count", "exposed_building_count",
+            "critical_facility_count", "exposed_critical_facility_count",
+        ],
     }
     outputs = {}
     for name, fields in geojson_specs.items():

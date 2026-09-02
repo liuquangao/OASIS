@@ -24,6 +24,7 @@ from oasis.models.map_conversation import (
     RiskReportEvidence,
 )
 from oasis.runtime import build_analysis_service
+from oasis.risk_reporting import build_priority_risk_report
 from oasis.settings import Settings
 
 
@@ -204,7 +205,14 @@ class AssessmentCoordinator:
                     **package,
                 },
             )
-            response = self._response(question, state, result, quality)
+            response = self._response(
+                question,
+                state,
+                result,
+                quality,
+                job.preferences,
+                service._load,
+            )
             response.execution_trace = [step.model_copy(deep=True) for step in job.steps]
             job.final_response = response.model_dump(mode="json")
             if result.status in {"partial", "unavailable", "failed"} or quality["status"] == "fail":
@@ -417,6 +425,8 @@ class AssessmentCoordinator:
         state: MapSessionState,
         result: AnalysisRunSummary,
         quality: dict,
+        preferences: AssessmentPreferences,
+        load_run,
     ) -> MapAgentResponse:
         state = state.model_copy(deep=True)
         old_visible = set(state.visible_analysis_layer_ids)
@@ -430,51 +440,43 @@ class AssessmentCoordinator:
         state.recent_analysis_run_id = result.run_id
         top = result.summary.get("top_areas", [])
         quality_label = str(quality.get("status", "unknown"))
-        report = RiskReport(
-            title=(
-                "Glasgow historical forecast-input validation"
-                if result.analysis_type == "historical_flood_validation"
-                else "Glasgow flood risk and social-priority assessment"
-            ),
-            question=question,
-            area="Glasgow",
-            time_horizon=(
-                "6–7 October 2023 historical scenario"
-                if result.analysis_type == "historical_flood_validation"
-                else "Confirmed scenario"
-            ),
-            overall_risk="mixed" if quality_label != "fail" else "unknown",
-            summary=(
-                "Deterministic spatial outputs are complete and passed the quality gate."
-                if quality_label == "pass"
-                else f"The deterministic run completed with quality status {quality_label}; review flagged checks before using the ranking."
-            ),
-            key_findings=[
-                (
-                    f"Rank {item.get('rank')}: {item.get('name') or item.get('id')} — "
-                    f"priority {AssessmentCoordinator._score(item.get('priority_score'))}, "
-                    f"hazard {AssessmentCoordinator._score(item.get('hazard_score'))}, "
-                    f"exposure {AssessmentCoordinator._score(item.get('exposure_score'))}, "
-                    f"vulnerability {AssessmentCoordinator._score(item.get('vulnerability_score'))}."
-                )
-                for item in top[:5]
-            ],
-            evidence=[
-                RiskReportEvidence(
-                    label="Deterministic analysis run",
-                    value=result.run_id,
-                    source=f"OASIS {result.analysis_type}",
+        if result.analysis_type == "historical_flood_validation":
+            report = RiskReport(
+                title="Glasgow historical forecast-input validation",
+                question=question,
+                area="Glasgow",
+                time_horizon="6–7 October 2023 historical scenario",
+                overall_risk="mixed" if quality_label != "fail" else "unknown",
+                summary=(
+                    "Deterministic spatial outputs are complete and passed the quality gate."
+                    if quality_label == "pass"
+                    else f"The deterministic run completed with quality status {quality_label}; review flagged checks before using the ranking."
                 ),
-                RiskReportEvidence(
-                    label="Quality gate",
-                    value=quality_label,
-                    source="quality_report.json",
-                ),
-            ],
-            limitations=[
-                "Priority is a value-weighted intervention ranking, not flood probability or an official warning."
-            ],
-        )
+                key_findings=[
+                    f"Rank {item.get('rank')}: {item.get('name') or item.get('id')}"
+                    for item in top[:5]
+                ],
+                evidence=[
+                    RiskReportEvidence(
+                        label="Deterministic analysis run",
+                        value=result.run_id,
+                        source=f"OASIS {result.analysis_type}",
+                    ),
+                    RiskReportEvidence(
+                        label="Quality gate",
+                        value=quality_label,
+                        source="quality_report.json",
+                    ),
+                ],
+            )
+        else:
+            report = build_priority_risk_report(
+                question=question,
+                result=result,
+                quality=quality,
+                preferences=preferences,
+                load_run=load_run,
+            )
         state.risk_report = report
         state.last_task = (
             "historical" if result.analysis_type == "historical_flood_validation" else "assessment"
