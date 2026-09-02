@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from datetime import datetime
 import json
 from typing import Any
 
@@ -12,6 +13,7 @@ import httpx
 from oasis import __version__
 from oasis.domain.areas import list_supported_areas, resolve_area
 from oasis.integrations.sepa import SepaTimeSeriesClient
+from oasis.models.analysis import PriorityWeights
 from oasis.runtime import build_analysis_service, run_agent
 from oasis.reproducible_data import (
     preflight_exact_data,
@@ -82,6 +84,33 @@ async def _run(args: argparse.Namespace) -> int:
             hazard_threshold=args.hazard_threshold,
             priority_scenario=args.priority_scenario,
             all_hazards_run_id=args.all_hazards_run_id,
+        )
+        _json(result)
+        return 0
+
+    if args.command == "historical-validation":
+        issue_time = datetime.fromisoformat(args.issue_time.replace("Z", "+00:00"))
+        result = await build_analysis_service(
+            settings, publish=not args.no_publish
+        ).run_historical_validation(
+            issue_time=issue_time,
+            forecast_horizon=args.forecast_horizon_hours,
+            hazard_threshold=args.hazard_threshold,
+            priority_scenario=args.priority_scenario,
+        )
+        _json(result)
+        return 0
+
+    if args.command == "rerank":
+        result = await build_analysis_service(settings, publish=not args.no_publish).rerank_flood_priority(
+            source_run_id=args.run_id,
+            weights=PriorityWeights(
+                hazard=args.hazard_weight,
+                exposure=args.exposure_weight,
+                vulnerability=args.vulnerability_weight,
+            ),
+            include_simd=not args.exclude_simd,
+            scenario_name=args.scenario_name,
         )
         _json(result)
         return 0
@@ -196,6 +225,32 @@ def build_parser() -> argparse.ArgumentParser:
         default="social_equity",
     )
     priority.add_argument("--all-hazards-run-id")
+
+    historical = sub.add_parser(
+        "historical-validation",
+        help="Validate the 6–7 October 2023 forecast input and decision stability.",
+    )
+    historical.add_argument("--issue-time", default="2023-10-06T06:00:00Z")
+    historical.add_argument("--forecast-horizon-hours", type=int, default=24)
+    historical.add_argument("--hazard-threshold", type=int, choices=[1, 2, 3], default=2)
+    historical.add_argument(
+        "--priority-scenario",
+        choices=["life_safety", "social_equity", "economic_protection"],
+        default="social_equity",
+    )
+    historical.add_argument("--no-publish", action="store_true")
+
+    rerank = sub.add_parser(
+        "rerank",
+        help="Re-rank persisted Data Zone components without weather or hazard calls.",
+    )
+    rerank.add_argument("--run-id", required=True)
+    rerank.add_argument("--hazard-weight", type=float, default=0.25)
+    rerank.add_argument("--exposure-weight", type=float, default=0.25)
+    rerank.add_argument("--vulnerability-weight", type=float, default=0.50)
+    rerank.add_argument("--exclude-simd", action="store_true")
+    rerank.add_argument("--scenario-name", default="custom")
+    rerank.add_argument("--no-publish", action="store_true")
 
     nrfa = sub.add_parser("nrfa", help="List or query local NRFA historical series.")
     nrfa.add_argument("--dataset", choices=["nrfa_historical_river_flow", "nrfa_historical_rainfall"], required=True)

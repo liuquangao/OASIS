@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import TypeAdapter
@@ -291,6 +292,31 @@ async def query_nrfa_historical_series(
         station_id=station_id,
         start_date=start_date,
         end_date=end_date,
+    )
+
+
+@analysis_tools.tool
+async def run_historical_flood_validation(
+    ctx: RunContext[MapAgentDeps],
+    issue_time: str = "2023-10-06T06:00:00Z",
+    forecast_horizon_hours: int = 24,
+    hazard_threshold: Literal[1, 2, 3] = 2,
+    priority_scenario: Literal[
+        "life_safety", "social_equity", "economic_protection"
+    ] = "social_equity",
+) -> AnalysisRunSummary:
+    """Validate archived UKV rainfall and Data Zone ranking without time leakage."""
+
+    parsed = datetime.fromisoformat(issue_time.replace("Z", "+00:00"))
+    _trace(ctx, "run_historical_flood_validation")
+    return _show_layers(
+        ctx,
+        await ctx.deps.analysis.run_historical_validation(
+            issue_time=parsed,
+            forecast_horizon=forecast_horizon_hours,
+            hazard_threshold=hazard_threshold,
+            priority_scenario=priority_scenario,
+        ),
     )
 
 

@@ -17,6 +17,7 @@ processes all other analysis data. Never commit API keys or the UKCEH raster.
 | Agent model access | Real natural-language Agent conversations | Choose either a hosted model API or a locally deployed vLLM model. `OASIS_MODEL=test` works only for offline smoke tests. |
 | CARTO Basemaps API key | A watermark-free website basemap | Add it to the ignored `webgis/frontend/config.local.js`. It does not affect flood calculations. |
 | Met Office Site-Specific Forecast key | 24-hour forecast reports and future-pluvial analysis | Add `METOFFICE_SITE_API_KEY` to `.env`. Without it, current observations and static hazard analyses still work. |
+| CEDA archive access | Reproduce the 6–7 October 2023 historical validation | Set `CEDA_ACCESS_TOKEN`, `CEDA_USERNAME`/`CEDA_PASSWORD`, or point `OASIS_HISTORICAL_UKV_PATH` at a downloaded precipitation file. |
 | ADMIRALTY Tidal API key | Optional live coastal tidal prediction | Add `ADMIRALTY_API_KEY` to `.env`. Static SEPA coastal analysis does not require it. |
 
 LiDAR, OS OpenData, SEPA Flood Maps, Census, NRS, SIMD, and NRFA inputs do not
@@ -45,6 +46,7 @@ OASIS_MODEL=openai:gpt-5-mini
 OPENAI_API_KEY=your-provider-key
 METOFFICE_SITE_API_KEY=your-met-office-site-specific-key
 OASIS_METOFFICE_SAMPLE_GRID_SIZE=5
+# CEDA_ACCESS_TOKEN=your-short-lived-token
 # ADMIRALTY_API_KEY=your-admiralty-tidal-key
 ```
 
@@ -141,6 +143,8 @@ rasters, and the older standalone map pages remain under `webgis/`.
 ```text
 src/oasis/
 ├── agent.py          PydanticAI Agent and instructions
+├── assessment.py     typed HITL plans and persistence
+├── assessment_jobs.py confirmed asynchronous execution and audit traces
 ├── deps.py           typed, swappable runtime dependencies
 ├── toolsets/         reusable PydanticAI FunctionToolsets
 ├── models/           provider-neutral Pydantic models
@@ -177,6 +181,12 @@ services used by the PydanticAI agent.
 - Run one deterministic Census 2022 Data Zone assessment that combines hazard,
   population/building/facility exposure, social vulnerability, explicit
   priority scenarios, and paper-ready sensitivity outputs.
+- Route requests with a compact no-thinking intent model, dynamically expose at
+  most eight relevant tools, and require confirmation before an integrated run.
+- Re-rank persisted Hazard/Exposure/Vulnerability components after a stakeholder
+  changes weights or SIMD inclusion, without requesting weather or rerunning Hazard.
+- Run a no-time-leakage 6–7 October 2023 forecast-input and decision-stability
+  validation from CEDA UKV forecasts and downloaded NRFA observations.
 - Publish generated rasters to GeoServer and add raster/GeoJSON results to the
   website's interactive layer list.
 - List and query downloaded NRFA historical river-flow and catchment-rainfall
@@ -190,17 +200,14 @@ The observation Agent exposes three tools:
 - `get_recent_water_levels_near_location`
 - `get_recent_rainfall_near_location`
 
-The browser Spatial Agent exposes thirty-two composable tools. Nine cover
-geocoding, nearby-place search, route retrieval and analysis, route ranking,
-map display, and session cleanup. One retrieves recent observations from nearby
-SEPA rain gauges. Four hazard tools expose snapshot status, whole-area
-recalculation, point lookup, and layer visibility. Seventeen extended Core Analyst
-tools cover data readiness, controlled input preparation, pluvial/fluvial/coastal
-hazard analysis, combined hazard, coastal dynamic evidence, exposure,
-vulnerability, explicit priority ranking, scenario comparison, sensitivity,
-one-click all-hazard execution, NRFA station/series queries, and generalized
-analysis planning, configuration-driven hazard extension execution, and the
-one-call `run_core_flood_priority_assessment` workflow.
+The browser Agent catalog contains composable map, observation, routing and Core
+Analyst tools, but the model no longer receives the whole catalog. A structured
+`AnalysisIntent` pass sees only the current question and compact map state.
+PydanticAI `FilteredToolset` then exposes 3–8 tools for that intent. Citywide
+Risk/Exposure/Vulnerability/Priority and historical-validation requests return an
+editable `AssessmentPlan`; they do not execute until the user confirms it. This
+keeps semantic flexibility without exact-sentence routing or a large 32-tool
+prompt on every turn.
 Every point and route risk analysis uses the same latest calculated raster.
 Core Analyst source is under
 `src/core_analyst/`; its local geodatabase inputs and generated rasters are
@@ -278,6 +285,86 @@ For the paper, report the vulnerability-weight sweep (`0.10`–`0.70`), exposure
 threshold comparison (classes `>=2` versus class `3`), and vulnerability with
 and without harmonized SIMD. Generated values remain research proxies requiring
 human review and scientific validation.
+
+## Human-confirmed decision Agent
+
+Ask a broad question such as:
+
+```text
+What is the flood risk and social-equity priority across Glasgow for the next 24 hours?
+```
+
+The first response is a plan, not a calculation. The WebGIS shows scenario,
+horizon, hazard threshold, decision preset, explicit Hazard/Exposure/Vulnerability
+weights, and a SIMD switch. `Confirm and run` calls
+`POST /assessments/{plan_id}/execute`; `GET /assessment-jobs/{job_id}` reports
+Data readiness, Hazard, Exposure, Vulnerability, Priority, Validation and Publish
+progress. Each run writes `execution_trace.json`, `quality_report.json`, and
+`recovery_log.json` alongside its deterministic outputs.
+
+Changing only weights or SIMD after completion calls
+`POST /analysis/runs/{run_id}/rerank`. This reads saved Data Zone components and
+records `external_api_calls: 0`; it does not contact Met Office or recompute a
+hazard raster. Quality gates check Data Zone counts, non-empty outputs, score and
+rank consistency, GeoJSON coordinates, raster alignment, source times, artifact
+checksums, published-layer presence, and anomalously dominant hazard classes. A
+failed gate prevents the interface from describing the result as a normal,
+validated conclusion.
+
+The current release fully configures only Glasgow. AOI and provider interfaces
+are configurable and covered by synthetic tests, but a second city is not claimed
+to be operational.
+
+## 6–7 October 2023 historical validation
+
+The validation issue time defaults to `2023-10-06T06:00:00Z` with a 24-hour
+horizon. It uses Met Office UKV hourly forecast data from the authenticated
+[CEDA NWP-UKV archive](https://catalogue.ceda.ac.uk/uuid/f47bc62786394626b665e23b658d385f/),
+local NRFA daily rainfall/river-flow histories, and the official
+[Met Office event report](https://www.metoffice.gov.uk/binaries/content/assets/metofficegovuk/pdf/weather/learn-about/uk-past-events/interesting/2023/2023_07_scotland_rain.pdf).
+Forecast reference time is checked before any analysis; later forecasts are
+rejected rather than substituted.
+
+Configure one archive-access mode:
+
+```dotenv
+CEDA_ACCESS_TOKEN=your-short-lived-token
+# or CEDA_USERNAME and CEDA_PASSWORD
+# or OASIS_HISTORICAL_UKV_PATH=/absolute/path/to/auditable-precipitation.grib
+```
+
+Then reproduce without publishing intermediate rasters:
+
+```bash
+oasis historical-validation \
+  --issue-time 2023-10-06T06:00:00Z \
+  --forecast-horizon-hours 24 \
+  --hazard-threshold 2 \
+  --priority-scenario social_equity \
+  --no-publish
+```
+
+The downloaded UKV GRIB is cached after a successful response. The processor
+selects precipitation bands within T+24 using GRIB metadata, integrates rate or
+interval fields, and refuses files whose rainfall semantics cannot be audited.
+Outputs include forecast/observation rainfall comparison, forecast and
+observation-driven Data Zone priority maps, rainfall bias/MAE/spatial correlation,
+Top-10 overlap, rank correlation, NRFA river-flow context, and baseline-versus-event
+hazard class distributions. This is explicitly **forecast-input and
+decision-stability validation**. NRFA catchment daily rainfall is an observation
+proxy and there is no independent Glasgow inundation footprint, so OASIS does not
+report flood-pixel IoU, F1, or accuracy.
+
+Run the 24-prompt English/Chinese semantic routing evaluation against the
+configured model with:
+
+```bash
+python scripts/evaluate_intent_routing.py
+```
+
+The short competition demonstration and evidence checklist are in
+[`docs/demo-script.md`](docs/demo-script.md) and
+[`docs/competition-evidence.md`](docs/competition-evidence.md).
 
 The current version does **not** claim to issue an operational flood warning.
 Rainfall and river-level observations are returned with provenance and quality

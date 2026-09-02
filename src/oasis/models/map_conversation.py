@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from oasis.models.routes import RememberedRoute
 from oasis.models.analysis import AnalysisMapLayer
+from oasis.models.assessment import AssessmentPlan, ExecutionStep
 
 
 class GeoPlace(BaseModel):
@@ -75,7 +76,11 @@ class MapSessionState(BaseModel):
     analysis_layers: list[AnalysisMapLayer] = Field(default_factory=list)
     visible_analysis_layer_ids: list[str] = Field(default_factory=list)
     risk_report: RiskReport | None = None
-    last_task: Literal["locate", "risk", "nearby", "route"] | None = None
+    pending_assessment: AssessmentPlan | None = None
+    recent_analysis_run_id: str | None = None
+    last_task: Literal[
+        "locate", "risk", "nearby", "route", "assessment", "historical"
+    ] | None = None
 
 
 class MapEvent(BaseModel):
@@ -108,3 +113,5 @@ class MapAgentResponse(BaseModel):
     state: MapSessionState
     events: list[MapEvent]
     tools_used: list[str] = Field(default_factory=list)
+    pending_assessment: AssessmentPlan | None = None
+    execution_trace: list[ExecutionStep] = Field(default_factory=list)

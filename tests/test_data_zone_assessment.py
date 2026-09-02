@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
@@ -159,3 +160,6 @@ def test_end_to_end_data_zone_assessment_writes_all_outputs(tmp_path: Path) -> N
         "sensitivity", "four_panel_map", "sensitivity_figure",
     } <= result["outputs"].keys()
     assert all(Path(path).is_file() for path in result["outputs"].values())
+    with Path(result["outputs"]["data_zone_assessment"]).open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert all(row["priority_score"] and row["priority_rank"] for row in rows)

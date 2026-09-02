@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0" />
     <title>Hydromind Flood Risk Assessment System</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="./demo.css?v=20260901-setup-preflight" />
+    <link rel="stylesheet" href="./demo.css?v=20260901-hitl-agent" />
   </head>
   <body>
     <div id="demo-map"></div>
@@ -93,6 +93,67 @@
           </summary>
           <div id="setup-status-body" class="setup-status-body"></div>
         </details>
+        <section id="assessment-decision" class="assessment-decision" aria-live="polite" hidden>
+          <header class="decision-header">
+            <div>
+              <span class="decision-kicker">Human-in-the-loop checkpoint</span>
+              <h2>Decision settings</h2>
+            </div>
+            <span id="assessment-status-badge" class="decision-status">Awaiting confirmation</span>
+          </header>
+          <p id="assessment-rationale" class="decision-rationale"></p>
+          <div id="decision-controls">
+            <div class="decision-grid">
+              <label>Scenario
+                <select id="assessment-scenario">
+                  <option value="current">Current</option>
+                  <option value="future">Future</option>
+                  <option value="historical">Historical</option>
+                </select>
+              </label>
+              <label>Horizon
+                <select id="assessment-horizon">
+                  <option value="6">6 hours</option>
+                  <option value="12">12 hours</option>
+                  <option value="24">24 hours</option>
+                  <option value="48">48 hours</option>
+                </select>
+              </label>
+              <label>Hazard gate
+                <select id="assessment-threshold">
+                  <option value="1">Class ≥ 1</option>
+                  <option value="2">Class ≥ 2</option>
+                  <option value="3">Class ≥ 3</option>
+                </select>
+              </label>
+            </div>
+            <fieldset class="priority-presets">
+              <legend>Decision lens</legend>
+              <div class="preset-row">
+                <button type="button" data-preset="life_safety">Life safety</button>
+                <button type="button" data-preset="social_equity">Social equity</button>
+                <button type="button" data-preset="economic_protection">Economic</button>
+              </div>
+            </fieldset>
+            <div class="weight-editor" aria-label="Priority component weights">
+              <label><span>Hazard <output id="hazard-weight-output">25%</output></span>
+                <input id="hazard-weight" type="range" min="0" max="1" step="0.05" value="0.25" />
+              </label>
+              <label><span>Exposure <output id="exposure-weight-output">25%</output></span>
+                <input id="exposure-weight" type="range" min="0" max="1" step="0.05" value="0.25" />
+              </label>
+              <label><span>Vulnerability <output id="vulnerability-weight-output">50%</output></span>
+                <input id="vulnerability-weight" type="range" min="0" max="1" step="0.05" value="0.50" />
+              </label>
+            </div>
+            <div class="decision-footer">
+              <label class="switch-label"><input id="assessment-simd" type="checkbox" checked /> Include SIMD</label>
+              <span id="weight-total" class="weight-total">Total 100%</span>
+              <button id="assessment-confirm" class="confirm-run" type="button">Confirm and run</button>
+            </div>
+          </div>
+          <ol id="assessment-progress" class="assessment-progress" hidden></ol>
+        </section>
         <div id="agent-history" class="agent-history"></div>
 
         <div class="prompt-row">
@@ -139,6 +200,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="./config.local.js?v=20260830-carto-key"></script>
-    <script src="./demo.js?v=20260901-setup-preflight"></script>
+    <script src="./demo.js?v=20260901-hitl-agent"></script>
   </body>
 </html>

@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field
 
 from oasis.runtime import run_spatial_agent
 from oasis.settings import Settings
+from oasis.assessment_jobs import assessment_coordinator
+from oasis.models.analysis import PriorityWeights
+from oasis.models.assessment import AssessmentJob, AssessmentPreferences
 from oasis.models.map_conversation import MapAgentResponse, MapSessionState
 from oasis.setup import setup_coordinator
 
@@ -20,6 +23,17 @@ from oasis.setup import setup_coordinator
 class MapTurnRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=1000)
     state: MapSessionState = Field(default_factory=MapSessionState)
+
+
+class AssessmentExecuteRequest(BaseModel):
+    preferences: AssessmentPreferences
+    state: MapSessionState = Field(default_factory=MapSessionState)
+
+
+class RerankRequest(BaseModel):
+    weights: PriorityWeights
+    include_simd: bool = True
+    scenario_name: str = Field(default="custom", min_length=1, max_length=40)
 
 
 _RUN_ID = re.compile(r"^[a-f0-9]{12}$")
@@ -89,6 +103,57 @@ async def analysis_run(run_id: str) -> dict:
     settings = Settings.from_env()
     path = _result_path(settings, run_id)
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.post("/assessments/{plan_id}/execute", response_model=AssessmentJob)
+async def execute_assessment(
+    plan_id: str,
+    request: AssessmentExecuteRequest,
+) -> AssessmentJob:
+    """Queue only a plan that the user has explicitly confirmed."""
+
+    settings = Settings.from_env()
+    try:
+        return assessment_coordinator.start(
+            plan_id=plan_id,
+            preferences=request.preferences,
+            state=request.state,
+            settings=settings,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/assessment-jobs/{job_id}", response_model=AssessmentJob)
+async def assessment_job(job_id: str) -> AssessmentJob:
+    try:
+        return assessment_coordinator.get(job_id, Settings.from_env())
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/analysis/runs/{run_id}/rerank")
+async def rerank_analysis(run_id: str, request: RerankRequest) -> dict:
+    """Re-rank saved components without weather calls or hazard recomputation."""
+
+    settings = Settings.from_env()
+    from oasis.runtime import build_analysis_service
+
+    service = build_analysis_service(settings)
+    try:
+        result = await service.rerank_flood_priority(
+            source_run_id=run_id,
+            weights=request.weights,
+            include_simd=request.include_simd,
+            scenario_name=request.scenario_name,
+        )
+        quality = await service.validate_flood_priority_run(
+            result.run_id,
+            expected_data_zone_count=1071,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"run": result.model_dump(mode="json"), "quality": quality}
 
 
 @app.get("/analysis/runs/{run_id}/artifacts/{key}")

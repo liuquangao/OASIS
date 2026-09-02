@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+import hashlib
+import httpx
 import json
 from pathlib import Path
 import re
@@ -15,6 +18,10 @@ import numpy as np
 import rasterio
 
 from core_analyst.analysts.data_zone_assessment import run_data_zone_flood_priority_assessment
+from core_analyst.historical_validation import (
+    CedaCredentials,
+    run_historical_flood_validation,
+)
 from core_analyst.data_registry import build_core_data_registry, write_core_data_registry
 from core_analyst.data_sources import MemoizedDataSource
 from core_analyst.workflows.generalized_analysis import plan_generalized_analysis
@@ -85,6 +92,10 @@ class CoreAnalystAnalysisService:
         current_hazard_raster_path: Path,
         metoffice_sample_grid_size: int = 5,
         publisher: GeoServerPublisher | None = None,
+        ceda_access_token: str | None = None,
+        ceda_username: str | None = None,
+        ceda_password: str | None = None,
+        historical_ukv_path: Path | None = None,
     ) -> None:
         self._input_dir = input_dir
         self._output_dir = output_dir
@@ -93,6 +104,12 @@ class CoreAnalystAnalysisService:
         self._current_hazard_raster_path = current_hazard_raster_path
         self._metoffice_sample_grid_size = metoffice_sample_grid_size
         self._publisher = publisher
+        self._ceda_credentials = CedaCredentials(
+            access_token=ceda_access_token,
+            username=ceda_username,
+            password=ceda_password,
+        )
+        self._historical_ukv_path = historical_ukv_path
         self._memo: dict[str, AnalysisRunSummary] = {}
 
     @property
@@ -433,6 +450,78 @@ class CoreAnalystAnalysisService:
         }
         return self._persist(run_id, f"nrfa_history_{dataset}", raw)
 
+    async def run_historical_validation(
+        self,
+        *,
+        issue_time: datetime,
+        forecast_horizon: int = 24,
+        hazard_threshold: int = 2,
+        priority_scenario: str = "social_equity",
+    ) -> AnalysisRunSummary:
+        """Run the no-leakage October 2023 forecast validation workflow."""
+
+        run_id = self._new_run_id()
+        if self._historical_ukv_path is None and not (
+            self._ceda_credentials.access_token
+            or (
+                self._ceda_credentials.username
+                and self._ceda_credentials.password
+            )
+        ):
+            return self._persist(
+                run_id,
+                "historical_flood_validation",
+                {
+                    "status": "unavailable",
+                    "summary": {
+                        "issue_time": issue_time.isoformat(),
+                        "reason": (
+                            "CEDA archive access is not configured. Set CEDA_ACCESS_TOKEN, "
+                            "CEDA_USERNAME/CEDA_PASSWORD, or OASIS_HISTORICAL_UKV_PATH."
+                        ),
+                    },
+                    "outputs": {},
+                    "provenance": {"credentials_persisted": False},
+                    "warnings": [
+                        {
+                            "code": "ceda_access_unavailable",
+                            "message": "Historical UKV forecast input is unavailable.",
+                        }
+                    ],
+                },
+            )
+        try:
+            raw = await asyncio.to_thread(
+                run_historical_flood_validation,
+                input_dir=self._input_dir,
+                config_dir=self._config_dir,
+                output_dir=self._output_dir / "historical_validation" / run_id,
+                issue_time=issue_time,
+                horizon_hours=forecast_horizon,
+                forecast_path=self._historical_ukv_path,
+                credentials=self._ceda_credentials,
+                hazard_threshold=hazard_threshold,
+                priority_scenario=priority_scenario,
+            )
+        except (FileNotFoundError, httpx.HTTPError, ValueError) as exc:
+            raw = {
+                "status": "unavailable",
+                "summary": {
+                    "issue_time": issue_time.isoformat(),
+                    "reason": str(exc),
+                    "interpretation": (
+                        "Historical validation did not substitute a later forecast or "
+                        "unlabelled proxy."
+                    ),
+                },
+                "outputs": {},
+                "provenance": {"credentials_persisted": False},
+                "warnings": [
+                    {"code": "historical_input_unavailable", "message": str(exc)}
+                ],
+            }
+        return self._persist(run_id, "historical_flood_validation", raw)
+
     async def generalized_plan(
         self,
         *,
@@ -679,6 +768,370 @@ class CoreAnalystAnalysisService:
         )
         return self._persist(run_id, "flood_priority_assessment", raw)
 
+    async def rerank_flood_priority(
+        self,
+        *,
+        source_run_id: str,
+        weights: PriorityWeights,
+        include_simd: bool = True,
+        scenario_name: str = "custom",
+    ) -> AnalysisRunSummary:
+        """Re-rank persisted Data Zone components without re-running hazards."""
+
+        source = self._load(source_run_id)
+        if source.get("analysis_type") == "priority_rerank":
+            source_run_id = str(source["provenance"]["source_run_id"])
+            source = self._load(source_run_id)
+        if source.get("analysis_type") != "flood_priority_assessment":
+            raise ValueError("source_run_id must reference a flood priority assessment")
+
+        outputs = source.get("outputs", {})
+        csv_path = Path(outputs["data_zone_assessment"])
+        geojson_path = Path(outputs["priority_by_data_zone"])
+        sensitivity_path = Path(outputs["sensitivity"])
+        rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+        without_simd = {
+            str(item["id"]): item.get("vulnerability_without_simd")
+            for item in json.loads(sensitivity_path.read_text(encoding="utf-8"))[
+                "simd_inclusion"
+            ]
+        }
+        base_scenario = str(source.get("summary", {}).get("priority_scenario", "social_equity"))
+        scored: list[dict[str, Any]] = []
+        for row in rows:
+            vulnerability = (
+                self._optional_float(row.get("vulnerability_score"))
+                if include_simd
+                else self._optional_float(without_simd.get(str(row["id"])))
+            )
+            hazard = self._optional_float(row.get("hazard_score"))
+            exposure = self._optional_float(row.get("exposure_score"))
+            score = None
+            if hazard is not None and exposure is not None and vulnerability is not None:
+                score = (
+                    hazard * weights.hazard
+                    + exposure * weights.exposure
+                    + vulnerability * weights.vulnerability
+                )
+            scored.append(
+                {
+                    **row,
+                    "hazard_score": hazard,
+                    "exposure_score": exposure,
+                    "vulnerability_score": vulnerability,
+                    "priority_score": score,
+                    "base_rank": self._optional_int(row.get(f"rank_{base_scenario}"))
+                    or self._optional_int(row.get("priority_rank")),
+                }
+            )
+        ranked = sorted(
+            (row for row in scored if row["priority_score"] is not None),
+            key=lambda row: (-row["priority_score"], str(row["id"])),
+        )
+        for rank, row in enumerate(ranked, 1):
+            row["priority_rank"] = rank
+            row["rank_change"] = (
+                None if row["base_rank"] is None else row["base_rank"] - rank
+            )
+
+        run_id = self._new_run_id()
+        root = self._output_dir / "priority_rerank" / run_id
+        root.mkdir(parents=True, exist_ok=False)
+        payload = json.loads(geojson_path.read_text(encoding="utf-8"))
+        by_id = {str(row["id"]): row for row in scored}
+        for feature in payload.get("features", []):
+            unit = by_id[str(feature.get("properties", {}).get("id"))]
+            feature["properties"].update(
+                {
+                    "priority_score": unit["priority_score"],
+                    "priority_rank": unit.get("priority_rank"),
+                    "priority_scenario": scenario_name,
+                    "hazard_score": unit["hazard_score"],
+                    "exposure_score": unit["exposure_score"],
+                    "vulnerability_score": unit["vulnerability_score"],
+                    "include_simd": include_simd,
+                    "rank_change": unit.get("rank_change"),
+                }
+            )
+        map_path = root / "priority_by_data_zone.geojson"
+        map_path.write_text(json.dumps(payload), encoding="utf-8")
+        summary = {
+            "assessment_type": "data_zone_priority_rerank",
+            "source_run_id": source_run_id,
+            "priority_scenario": scenario_name,
+            "weights": weights.model_dump(),
+            "include_simd": include_simd,
+            "data_zone_count": len(scored),
+            "complete_priority_count": len(ranked),
+            "top_areas": [
+                {
+                    "id": row["id"],
+                    "name": row.get("name"),
+                    "priority_score": row["priority_score"],
+                    "rank": row["priority_rank"],
+                    "rank_change": row.get("rank_change"),
+                    "hazard_score": row["hazard_score"],
+                    "exposure_score": row["exposure_score"],
+                    "vulnerability_score": row["vulnerability_score"],
+                }
+                for row in ranked[:10]
+            ],
+            "interpretation": (
+                "Priority is a relative value-dependent ranking. This re-rank reused "
+                "persisted deterministic components and made no weather API calls."
+            ),
+        }
+        summary_path = root / "rerank_summary.json"
+        summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        return self._persist(
+            run_id,
+            "priority_rerank",
+            {
+                "status": "success" if len(ranked) == len(scored) else "partial",
+                "summary": summary,
+                "outputs": {
+                    "priority_by_data_zone": str(map_path),
+                    "rerank_summary": str(summary_path),
+                },
+                "provenance": {
+                    "source_run_id": source_run_id,
+                    "weights": weights.model_dump(),
+                    "include_simd": include_simd,
+                    "external_api_calls": 0,
+                },
+                "warnings": [],
+            },
+        )
+
+    async def validate_flood_priority_run(
+        self,
+        run_id: str,
+        *,
+        expected_data_zone_count: int | None = None,
+        analysis_time: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Validate persisted spatial evidence before a report is presented."""
+
+        result = self._load(run_id)
+        source = result
+        if result.get("analysis_type") == "priority_rerank":
+            source = self._load(str(result["provenance"]["source_run_id"]))
+        outputs = source.get("outputs", {})
+        checks: list[dict[str, Any]] = []
+
+        required = (
+            "hazard_by_data_zone",
+            "exposure_by_data_zone",
+            "vulnerability_by_data_zone",
+            "priority_by_data_zone",
+            "data_zone_assessment",
+        )
+        missing = [key for key in required if not Path(outputs.get(key, "")).is_file()]
+        checks.append(self._quality_check(
+            "required_artifacts",
+            not missing,
+            "All required deterministic artifacts exist." if not missing else "Missing artifacts: " + ", ".join(missing),
+            {"missing": missing},
+        ))
+        if missing:
+            return self._write_quality_report(run_id, checks, analysis_time)
+
+        with Path(outputs["data_zone_assessment"]).open(encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        expected = expected_data_zone_count or int(
+            source.get("summary", {}).get("data_zone_count", len(rows))
+        )
+        checks.append(self._quality_check(
+            "data_zone_count",
+            len(rows) == expected,
+            f"Found {len(rows):,} Data Zones; expected {expected:,}.",
+            {"actual": len(rows), "expected": expected},
+        ))
+
+        geojson_counts: dict[str, int] = {}
+        invalid_coordinates = 0
+        for key in required[:4]:
+            payload = json.loads(Path(outputs[key]).read_text(encoding="utf-8"))
+            features = payload.get("features", [])
+            geojson_counts[key] = len(features)
+            for feature in features:
+                bounds = self._coordinate_bounds(feature.get("geometry"))
+                if bounds and not (
+                    -180 <= bounds[0] <= 180
+                    and -90 <= bounds[1] <= 90
+                    and -180 <= bounds[2] <= 180
+                    and -90 <= bounds[3] <= 90
+                ):
+                    invalid_coordinates += 1
+        checks.append(self._quality_check(
+            "geojson_alignment",
+            all(count == len(rows) for count in geojson_counts.values()) and not invalid_coordinates,
+            "All decision GeoJSON layers use plausible EPSG:4326 coordinates and cover the same Data Zones.",
+            {"feature_counts": geojson_counts, "invalid_coordinate_features": invalid_coordinates},
+        ))
+
+        score_fields = ("hazard_score", "exposure_score", "vulnerability_score")
+        bad_scores = []
+        for row in rows:
+            for field in score_fields:
+                value = self._optional_float(row.get(field))
+                if value is not None and not 0 <= value <= 1:
+                    bad_scores.append({"id": row.get("id"), "field": field, "value": value})
+        checks.append(self._quality_check(
+            "score_ranges",
+            not bad_scores,
+            "All available component scores are within 0–1." if not bad_scores else "One or more component scores fall outside 0–1.",
+            {"invalid_count": len(bad_scores), "examples": bad_scores[:5]},
+        ))
+
+        ranks = [
+            self._optional_int(row.get("priority_rank"))
+            for row in rows
+            if self._optional_int(row.get("priority_rank")) is not None
+        ]
+        checks.append(self._quality_check(
+            "ranking_consistency",
+            sorted(ranks) == list(range(1, len(ranks) + 1)),
+            "Priority ranks are unique and contiguous." if ranks else "No complete priority ranks were produced.",
+            {"rank_count": len(ranks), "unique_rank_count": len(set(ranks))},
+        ))
+
+        complete = int(source.get("summary", {}).get("complete_priority_count", 0))
+        checks.append({
+            "code": "priority_completeness",
+            "status": "pass" if complete == len(rows) else "warning" if complete else "fail",
+            "message": f"{complete:,} of {len(rows):,} Data Zones have complete priority scores.",
+            "evidence": {"complete": complete, "total": len(rows)},
+        })
+
+        hazard_publication: dict[str, Any] | None = None
+        hazard_outputs: dict[str, Any] = {}
+        all_hazards_id = source.get("provenance", {}).get("all_hazards_run_id")
+        if all_hazards_id:
+            hazards = self._load(str(all_hazards_id))
+            hazard_publication = hazards.get("publication", {})
+            hazard_outputs = hazards.get("outputs", {})
+            raster_paths = [
+                Path(value)
+                for key, value in hazards.get("outputs", {}).items()
+                if key.endswith("hazard_class") and isinstance(value, str) and Path(value).is_file()
+            ]
+            grids = []
+            for path in raster_paths:
+                with rasterio.open(path) as dataset:
+                    grids.append(
+                        {
+                            "path": str(path),
+                            "crs": str(dataset.crs),
+                            "shape": [dataset.height, dataset.width],
+                            "transform": list(dataset.transform)[:6],
+                            "resolution": list(dataset.res),
+                        }
+                    )
+            aligned = not grids or all(
+                item["crs"] == grids[0]["crs"]
+                and item["shape"] == grids[0]["shape"]
+                and item["transform"] == grids[0]["transform"]
+                for item in grids[1:]
+            )
+            checks.append(self._quality_check(
+                "hazard_raster_alignment",
+                aligned,
+                "All available hazard rasters share CRS, extent, resolution and transform.",
+                {"rasters": grids},
+            ))
+            scenario = str(source.get("summary", {}).get("scenario", "future"))
+            statistics = hazards.get("summary", {}).get("class_statistics", {}).get(
+                f"combined_{scenario}"
+            )
+            if statistics:
+                medium = float(statistics["classes"]["medium"]["percent_of_classified_area"])
+                high = float(statistics["classes"]["high"]["percent_of_classified_area"])
+                dominated = medium >= 90 and high < 1
+                checks.append({
+                    "code": "hazard_distribution",
+                    "status": "warning" if dominated else "pass",
+                    "message": (
+                        f"Combined {scenario} hazard is {medium:.2f}% Medium and {high:.2f}% High."
+                        + (" This unusually dominant Medium distribution requires review." if dominated else "")
+                    ),
+                    "evidence": statistics,
+                })
+
+        cutoff = analysis_time or datetime.now(UTC)
+        future_sources = self._future_source_times(source.get("provenance", {}), cutoff)
+        checks.append(self._quality_check(
+            "source_time_cutoff",
+            not future_sources,
+            "All auditable source timestamps are no later than the analysis time.",
+            {"analysis_time": cutoff.isoformat(), "future_sources": future_sources},
+        ))
+
+        publications = [(source.get("publication", {}), outputs)]
+        if hazard_publication is not None:
+            publications.append((hazard_publication, hazard_outputs))
+        recorded_count = 0
+        changed = {}
+        for publication, publication_outputs in publications:
+            recorded = publication.get("source_checksums", {})
+            recorded_count += len(recorded)
+            for key, digest in recorded.items():
+                path = Path(publication_outputs.get(key, ""))
+                if path.is_file() and self._sha256(path) != digest:
+                    changed[key] = {"recorded": digest, "current": self._sha256(path)}
+        checks.append(self._quality_check(
+            "publication_checksum",
+            bool(recorded_count) and not changed,
+            "Published-layer source checksums match the current local artifacts."
+            if recorded_count and not changed else "Published-layer checksum evidence is missing or inconsistent.",
+            {"recorded_count": recorded_count, "changed": changed},
+        ))
+        wms_layers = [
+            item["layer_name"]
+            for publication, _ in publications
+            for item in publication.get("map_layers", [])
+            if item.get("kind") == "wms" and item.get("layer_name")
+        ]
+        if wms_layers and self._publisher:
+            try:
+                missing_layers = [
+                    layer for layer in wms_layers
+                    if not await asyncio.to_thread(self._publisher.layer_exists, layer)
+                ]
+                checks.append(self._quality_check(
+                    "geoserver_layer_presence",
+                    not missing_layers,
+                    "All GeoServer layers associated with the run are present.",
+                    {"missing_layers": missing_layers},
+                ))
+            except httpx.HTTPError as exc:
+                checks.append({
+                    "code": "geoserver_layer_presence",
+                    "status": "warning",
+                    "message": "GeoServer publication could not be verified during validation.",
+                    "evidence": {"error": str(exc)},
+                })
+
+        checks.append({
+            "code": "artifact_checksums",
+            "status": "pass",
+            "message": "SHA-256 checksums recorded for all assessment artifacts.",
+            "evidence": {
+                key: self._sha256(Path(value))
+                for key, value in outputs.items()
+                if isinstance(value, str) and Path(value).is_file()
+            },
+        })
+        return self._write_quality_report(run_id, checks, analysis_time)
+
+    def attach_run_artifacts(self, run_id: str, artifacts: dict[str, str]) -> None:
+        """Add audit artifacts to an existing persisted run."""
+
+        path = self._run_dir(run_id) / "result.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload.setdefault("outputs", {}).update(artifacts)
+        path.write_text(json.dumps(payload, indent=2, default=self._json_default), encoding="utf-8")
+
     @staticmethod
     def _hazard_class_statistics(path: str | Path) -> dict[str, Any]:
         """Summarise class area without turning a mixed city into one risk label."""
@@ -719,6 +1172,108 @@ class CoreAnalystAnalysisService:
                 for class_value, label in labels.items()
             },
         }
+
+    def _write_quality_report(
+        self,
+        run_id: str,
+        checks: list[dict[str, Any]],
+        analysis_time: datetime | None,
+    ) -> dict[str, Any]:
+        status = "fail" if any(item["status"] == "fail" for item in checks) else (
+            "warning" if any(item["status"] == "warning" for item in checks) else "pass"
+        )
+        report = {
+            "run_id": run_id,
+            "status": status,
+            "analysis_time": (analysis_time or datetime.now(UTC)).isoformat(),
+            "checks": checks,
+        }
+        path = self._run_dir(run_id) / "quality_report.json"
+        path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        self.attach_run_artifacts(run_id, {"quality_report": str(path)})
+        return report
+
+    @staticmethod
+    def _quality_check(
+        code: str,
+        passed: bool,
+        message: str,
+        evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "code": code,
+            "status": "pass" if passed else "fail",
+            "message": message,
+            "evidence": evidence,
+        }
+
+    @staticmethod
+    def _optional_float(value: Any) -> float | None:
+        if value in {None, ""}:
+            return None
+        return float(value)
+
+    @staticmethod
+    def _optional_int(value: Any) -> int | None:
+        if value in {None, ""}:
+            return None
+        return int(float(value))
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
+
+    @classmethod
+    def _coordinate_bounds(cls, geometry: dict[str, Any] | None) -> tuple[float, float, float, float] | None:
+        if not geometry:
+            return None
+        coordinates = geometry.get("coordinates", [])
+        points: list[tuple[float, float]] = []
+
+        def visit(value: Any) -> None:
+            if isinstance(value, list) and len(value) >= 2 and all(
+                isinstance(item, (int, float)) for item in value[:2]
+            ):
+                points.append((float(value[0]), float(value[1])))
+            elif isinstance(value, list):
+                for item in value:
+                    visit(item)
+
+        visit(coordinates)
+        if not points:
+            return None
+        xs, ys = zip(*points)
+        return min(xs), min(ys), max(xs), max(ys)
+
+    @classmethod
+    def _future_source_times(
+        cls,
+        payload: Any,
+        cutoff: datetime,
+        path: str = "provenance",
+    ) -> list[dict[str, str]]:
+        found: list[dict[str, str]] = []
+        if isinstance(payload, dict):
+            for key, value in payload.items():
+                found.extend(cls._future_source_times(value, cutoff, f"{path}.{key}"))
+        elif isinstance(payload, list):
+            for index, value in enumerate(payload):
+                found.extend(cls._future_source_times(value, cutoff, f"{path}[{index}]"))
+        elif isinstance(payload, str) and any(
+            token in path.lower() for token in ("time", "observed_at", "retrieved_at")
+        ):
+            try:
+                parsed = datetime.fromisoformat(payload.replace("Z", "+00:00"))
+                parsed = parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+                if parsed > cutoff:
+                    found.append({"field": path, "value": payload})
+            except ValueError:
+                pass
+        return found
 
     async def register_extension(self, spec: HazardExtensionSpec) -> AnalysisRunSummary:
         run_id = self._new_run_id()
@@ -798,14 +1353,24 @@ class CoreAnalystAnalysisService:
         run_dir = self._run_dir(run_id)
         run_dir.mkdir(parents=True, exist_ok=False)
         stored = {**result, "run_id": run_id, "analysis_type": analysis_type}
-        (run_dir / "result.json").write_text(
-            json.dumps(stored, indent=2, default=self._json_default),
-            encoding="utf-8",
-        )
         status = str(result.get("status", "failed"))
         if status not in _STATUSES:
             status = "success" if status == "available" else "failed"
         map_layers = self._map_layers(run_id, analysis_type, result.get("outputs", {}))
+        source_checksums = {
+            key: self._sha256(Path(value))
+            for key, value in result.get("outputs", {}).items()
+            if isinstance(value, str) and Path(value).is_file()
+            and Path(value).suffix.lower() in {".tif", ".tiff", ".geojson"}
+        }
+        stored["publication"] = {
+            "map_layers": [layer.model_dump(mode="json") for layer in map_layers],
+            "source_checksums": source_checksums,
+        }
+        (run_dir / "result.json").write_text(
+            json.dumps(stored, indent=2, default=self._json_default),
+            encoding="utf-8",
+        )
         return AnalysisRunSummary(
             run_id=run_id,
             analysis_type=analysis_type,
@@ -832,6 +1397,8 @@ class CoreAnalystAnalysisService:
             path = Path(value)
             label = f"{analysis_type.replace('_', ' ').title()} · {key.replace('_', ' ').title()}"
             if path.suffix.lower() in {".tif", ".tiff"} and self._publisher:
+                if "hazard_class" not in key and not key.endswith("_class"):
+                    continue
                 layers.append(
                     self._publisher.publish_raster(
                         path,

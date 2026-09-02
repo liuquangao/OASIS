@@ -166,6 +166,26 @@ def configuration_status(settings: Settings) -> list[dict[str, Any]]:
             "message": "Optional for live coastal tidal prediction.",
         },
         {
+            "id": "ceda_historical_forecast",
+            "label": "CEDA UKV historical forecast",
+            "importance": "optional",
+            "configured": bool(
+                settings.historical_ukv_path
+                or settings.ceda_access_token
+                or (settings.ceda_username and settings.ceda_password)
+            ),
+            "environment_variables": [
+                "CEDA_ACCESS_TOKEN",
+                "CEDA_USERNAME",
+                "CEDA_PASSWORD",
+                "OASIS_HISTORICAL_UKV_PATH",
+            ],
+            "message": (
+                "Required only for the October 2023 hindcast. Use a CEDA token, "
+                "account credentials, or a previously downloaded UKV GRIB file."
+            ),
+        },
+        {
             "id": "carto_basemap",
             "label": "CARTO basemap",
             "importance": "optional",

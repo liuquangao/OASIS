@@ -330,13 +330,24 @@ class RealTimeAPISource(DataSource):
                     "fallback_used": None,
                 }
             except Exception as exc:
+                retry_after = None
+                if getattr(exc, "code", None) == 429:
+                    header = getattr(exc, "headers", {}).get("Retry-After")
+                    if header:
+                        try:
+                            retry_after = max(float(header), 0.0)
+                        except ValueError:
+                            retry_after = None
                 errors.append({
                     "attempt": attempt,
                     "error_type": type(exc).__name__,
                     "message": str(exc),
+                    "retry_after_seconds": retry_after,
                 })
-                if attempt < attempts and backoff:
-                    time.sleep(backoff * attempt)
+                if attempt < attempts:
+                    delay = retry_after if retry_after is not None else backoff * attempt
+                    if delay:
+                        time.sleep(delay)
         raise DynamicDataError({
             "source": self.source_name,
             "timestamp": datetime.now(timezone.utc).isoformat(),

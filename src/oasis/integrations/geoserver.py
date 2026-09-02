@@ -53,3 +53,14 @@ class GeoServerPublisher:
             layer_name=f"{self.workspace}:{layer}",
             style="hazard_class" if "class" in name else "",
         )
+
+    def layer_exists(self, layer_name: str) -> bool:
+        """Check that a layer associated with a published local artifact exists."""
+
+        encoded = layer_name.replace(":", "%3A")
+        with httpx.Client(auth=self.auth, timeout=20) as client:
+            response = client.get(f"{self.rest_url}/layers/{encoded}.json")
+        if response.status_code == 404:
+            return False
+        response.raise_for_status()
+        return True

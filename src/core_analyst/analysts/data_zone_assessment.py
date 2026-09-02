@@ -489,6 +489,7 @@ def _write_outputs(zones, output_dir, *, priority_scenario, scenario_summary, se
         "elderly_prop", "no_car_household_prop", "deprivation_score",
         "demographic_vulnerability", "socioeconomic_vulnerability", "accessibility_vulnerability",
         "distance_to_hospital_m", "distance_to_emergency_service_m", "vulnerability_score",
+        "vulnerability_without_simd", "priority_score", "priority_rank",
         "priority_life_safety", "rank_life_safety", "priority_social_equity", "rank_social_equity",
         "priority_economic_protection", "rank_economic_protection",
     ]
@@ -522,7 +523,11 @@ def _write_outputs(zones, output_dir, *, priority_scenario, scenario_summary, se
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=public_fields)
         writer.writeheader()
-        writer.writerows({field: zone.get(field) for field in public_fields} for zone in zones)
+        for zone in zones:
+            row = {field: zone.get(field) for field in public_fields}
+            row["priority_score"] = zone[f"priority_{priority_scenario}"]
+            row["priority_rank"] = zone[f"rank_{priority_scenario}"]
+            writer.writerow(row)
     outputs["data_zone_assessment"] = str(csv_path)
 
     scenarios_path = output_dir / "priority_scenarios.json"

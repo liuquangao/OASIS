@@ -23,13 +23,14 @@ body {
 }
 
 body {
-  font-family: Inter, "Segoe UI", Arial, Helvetica, sans-serif;
+  font-family: Bahnschrift, "Aptos Narrow", "Segoe UI", Arial, sans-serif;
   color: var(--text);
   background: #d9e6ee;
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -486,6 +487,248 @@ body.agent-collapsed .agent-open-button {
   50% {
     opacity: 0.35;
   }
+}
+
+.assessment-decision {
+  flex: 0 0 auto;
+  margin: 10px 12px 0;
+  padding: 12px;
+  border: 1px solid #67b7ca;
+  border-left: 4px solid #0e7490;
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(236, 254, 255, 0.98), rgba(248, 250, 252, 0.98));
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.assessment-decision[hidden] {
+  display: none;
+}
+
+.decision-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.decision-kicker {
+  color: #0e7490;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.decision-header h2 {
+  margin: 2px 0 0;
+  color: #10243b;
+  font-size: 16px;
+}
+
+.decision-status {
+  padding: 4px 7px;
+  border: 1px solid #a5d8e4;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #0e7490;
+  font-size: 8px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.decision-status.running {
+  color: #1d4ed8;
+  animation: setup-pulse 1.2s ease-in-out infinite;
+}
+
+.decision-status.failed {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.decision-rationale {
+  margin: 8px 0 10px;
+  color: #475569;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.decision-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.decision-grid label,
+.weight-editor label {
+  display: grid;
+  gap: 4px;
+  color: #475569;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.decision-grid select {
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid #b9c7d5;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1e293b;
+  padding: 0 6px;
+  font-size: 10px;
+}
+
+.priority-presets {
+  margin: 10px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.priority-presets legend {
+  margin-bottom: 5px;
+  color: #475569;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.preset-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.preset-row button {
+  min-height: 28px;
+  border: 1px solid #b9c7d5;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.preset-row button.active {
+  border-color: #0e7490;
+  background: #cffafe;
+  color: #155e75;
+}
+
+.weight-editor {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.weight-editor label span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.weight-editor output {
+  color: #0e7490;
+}
+
+.weight-editor input {
+  width: 100%;
+  accent-color: #0e7490;
+}
+
+.decision-footer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(14, 116, 144, 0.18);
+}
+
+.switch-label,
+.weight-total {
+  color: #475569;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.switch-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.weight-total.invalid {
+  color: #b91c1c;
+}
+
+.confirm-run {
+  min-height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: #0f3f5c;
+  color: #ffffff;
+  padding: 0 11px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.confirm-run:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.assessment-progress {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assessment-progress[hidden] {
+  display: none;
+}
+
+.assessment-progress li {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  color: #64748b;
+  font-size: 9px;
+}
+
+.assessment-progress li::before {
+  width: 8px;
+  height: 8px;
+  border: 1px solid #94a3b8;
+  border-radius: 50%;
+  content: "";
+}
+
+.assessment-progress li.completed::before {
+  border-color: #16a34a;
+  background: #16a34a;
+}
+
+.assessment-progress li.running::before {
+  border-color: #2563eb;
+  background: #93c5fd;
+  animation: setup-pulse 1s infinite;
+}
+
+.assessment-progress li.warning::before {
+  border-color: #d97706;
+  background: #fbbf24;
+}
+
+.assessment-progress li.failed::before {
+  border-color: #b91c1c;
+  background: #ef4444;
+}
+
+.assessment-progress small {
+  color: #94a3b8;
 }
 
 .agent-history {

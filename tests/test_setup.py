@@ -20,6 +20,9 @@ def _verification(*errors: str) -> dict:
 def test_setup_reports_required_and_optional_configuration(monkeypatch) -> None:
     monkeypatch.delenv("METOFFICE_SITE_API_KEY", raising=False)
     monkeypatch.delenv("ADMIRALTY_API_KEY", raising=False)
+    monkeypatch.delenv("CEDA_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("CEDA_USERNAME", raising=False)
+    monkeypatch.delenv("CEDA_PASSWORD", raising=False)
     settings = Settings(model="openai:gpt-5-mini")
 
     items = {item["id"]: item for item in configuration_status(settings)}
@@ -28,6 +31,8 @@ def test_setup_reports_required_and_optional_configuration(monkeypatch) -> None:
     assert items["agent_model"]["environment_variables"] == ["OASIS_MODEL", "OPENAI_API_KEY"]
     assert items["metoffice_forecast"]["configured"] is False
     assert items["admiralty_tides"]["importance"] == "optional"
+    assert items["ceda_historical_forecast"]["configured"] is False
+    assert "CEDA_ACCESS_TOKEN" in items["ceda_historical_forecast"]["environment_variables"]
 
 
 def test_openai_model_requires_its_api_key() -> None:

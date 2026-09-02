@@ -28,6 +28,16 @@ from .analysis import (
     PriorityUnitInput,
     PriorityWeights,
 )
+from .assessment import (
+    AnalysisIntent,
+    AssessmentJob,
+    AssessmentPlan,
+    AssessmentPreferences,
+    ExecutionStep,
+    HistoricalValidationSummary,
+    QualityCheck,
+    RecoveryRecord,
+)
 from .rainfall import (
     LatestRainfallAreaSummary,
     LatestRainfallObservation,
@@ -47,6 +57,14 @@ __all__ = [
     "MapAgentResponse",
     "MapEvent",
     "MapSessionState",
+    "AnalysisIntent",
+    "AssessmentJob",
+    "AssessmentPlan",
+    "AssessmentPreferences",
+    "ExecutionStep",
+    "HistoricalValidationSummary",
+    "QualityCheck",
+    "RecoveryRecord",
     "RememberedLocation",
     "RememberedRoute",
     "RouteCandidate",

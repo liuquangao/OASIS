@@ -45,6 +45,10 @@ class Settings(BaseModel):
     lcm2019_path: Path | None = None
     accept_data_licences: bool = False
     auto_prepare_data: bool = True
+    ceda_access_token: SecretStr | None = None
+    ceda_username: str | None = None
+    ceda_password: SecretStr | None = None
+    historical_ukv_path: Path | None = None
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
     osrm_url: str = "https://router.project-osrm.org"
 
@@ -129,6 +133,16 @@ class Settings(BaseModel):
             ),
             accept_data_licences=_env_bool("OASIS_ACCEPT_DATA_LICENCES", False),
             auto_prepare_data=_env_bool("OASIS_AUTO_PREPARE_DATA", True),
+            ceda_access_token=(
+                SecretStr(value) if (value := os.getenv("CEDA_ACCESS_TOKEN")) else None
+            ),
+            ceda_username=os.getenv("CEDA_USERNAME"),
+            ceda_password=(
+                SecretStr(value) if (value := os.getenv("CEDA_PASSWORD")) else None
+            ),
+            historical_ukv_path=(
+                Path(value) if (value := os.getenv("OASIS_HISTORICAL_UKV_PATH")) else None
+            ),
             nominatim_url=os.getenv(
                 "OASIS_NOMINATIM_URL",
                 "https://nominatim.openstreetmap.org/search",

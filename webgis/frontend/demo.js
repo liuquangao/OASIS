@@ -53,8 +53,25 @@ let sessionState = {
   analysis_layers: [],
   visible_analysis_layer_ids: [],
   risk_report: null,
+  pending_assessment: null,
+  recent_analysis_run_id: null,
   last_task: null
 };
+
+const assessmentDecision = document.getElementById("assessment-decision");
+const decisionControls = document.getElementById("decision-controls");
+const assessmentProgress = document.getElementById("assessment-progress");
+const assessmentStatusBadge = document.getElementById("assessment-status-badge");
+const assessmentRationale = document.getElementById("assessment-rationale");
+const confirmAssessmentButton = document.getElementById("assessment-confirm");
+const weightInputs = {
+  hazard: document.getElementById("hazard-weight"),
+  exposure: document.getElementById("exposure-weight"),
+  vulnerability: document.getElementById("vulnerability-weight")
+};
+let activeAssessmentPlan = null;
+let assessmentMode = "plan";
+let selectedPriorityPreset = "social_equity";
 
 const conversationTab = document.getElementById("conversation-tab");
 const riskReportTab = document.getElementById("risk-report-tab");
@@ -66,6 +83,209 @@ function textElement(tag, className, text) {
   if (className) element.className = className;
   element.textContent = text;
   return element;
+}
+
+const PRIORITY_PRESETS = {
+  life_safety: { hazard: 0.45, exposure: 0.40, vulnerability: 0.15 },
+  social_equity: { hazard: 0.25, exposure: 0.25, vulnerability: 0.50 },
+  economic_protection: { hazard: 0.40, exposure: 0.45, vulnerability: 0.15 }
+};
+
+function setDecisionWeights(weights, preset = "custom") {
+  Object.entries(weightInputs).forEach(([key, input]) => {
+    input.value = weights[key];
+  });
+  selectedPriorityPreset = preset;
+  document.querySelectorAll("[data-preset]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.preset === preset);
+  });
+  updateWeightDisplay();
+}
+
+function updateWeightDisplay() {
+  const values = Object.fromEntries(
+    Object.entries(weightInputs).map(([key, input]) => [key, Number(input.value)])
+  );
+  Object.entries(values).forEach(([key, value]) => {
+    document.getElementById(`${key}-weight-output`).value = `${Math.round(value * 100)}%`;
+  });
+  const total = values.hazard + values.exposure + values.vulnerability;
+  const valid = Math.abs(total - 1) < 0.001;
+  const totalElement = document.getElementById("weight-total");
+  totalElement.textContent = `Total ${Math.round(total * 100)}%`;
+  totalElement.classList.toggle("invalid", !valid);
+  confirmAssessmentButton.disabled = !valid || assessmentMode === "running";
+  return { values, valid };
+}
+
+function renderAssessmentPlan(plan) {
+  if (!plan) return;
+  activeAssessmentPlan = plan;
+  assessmentMode = "plan";
+  assessmentDecision.hidden = false;
+  decisionControls.hidden = false;
+  assessmentProgress.hidden = true;
+  assessmentStatusBadge.textContent = "Awaiting confirmation";
+  assessmentStatusBadge.className = "decision-status";
+  assessmentRationale.textContent = `${plan.intent.rationale} ${plan.missing_datasets.length} data dependencies are incomplete or unavailable.`;
+  document.getElementById("assessment-scenario").value = plan.preferences.scenario;
+  document.getElementById("assessment-horizon").value = String(plan.preferences.forecast_horizon_hours);
+  document.getElementById("assessment-threshold").value = String(plan.preferences.hazard_threshold);
+  ["assessment-scenario", "assessment-horizon", "assessment-threshold"].forEach((id) => {
+    document.getElementById(id).disabled = false;
+  });
+  document.getElementById("assessment-simd").checked = plan.preferences.include_simd;
+  setDecisionWeights(plan.preferences.weights, plan.preferences.priority_scenario);
+  confirmAssessmentButton.textContent = "Confirm and run";
+}
+
+function assessmentPreferences() {
+  const { values, valid } = updateWeightDisplay();
+  if (!valid) throw new Error("Hazard, exposure and vulnerability weights must total 100%.");
+  const scenario = document.getElementById("assessment-scenario").value;
+  return {
+    scenario,
+    use_live_data: scenario !== "historical",
+    forecast_horizon_hours: Number(document.getElementById("assessment-horizon").value),
+    hazard_threshold: Number(document.getElementById("assessment-threshold").value),
+    priority_scenario: selectedPriorityPreset,
+    weights: values,
+    include_simd: document.getElementById("assessment-simd").checked,
+    historical_issue_time: scenario === "historical" ? "2023-10-06T06:00:00Z" : null
+  };
+}
+
+function renderAssessmentProgress(job) {
+  assessmentDecision.hidden = false;
+  decisionControls.hidden = job.status === "running" || job.status === "queued" || job.status === "validating";
+  assessmentProgress.hidden = false;
+  assessmentProgress.replaceChildren();
+  job.steps.forEach((step) => {
+    const item = textElement("li", step.status, step.label);
+    item.appendChild(textElement("small", "", step.status));
+    item.title = step.detail || step.label;
+    assessmentProgress.appendChild(item);
+  });
+  assessmentStatusBadge.textContent = job.status.replaceAll("_", " ");
+  assessmentStatusBadge.className = `decision-status ${job.status}`;
+}
+
+async function executeAssessment() {
+  if (!activeAssessmentPlan) return;
+  if (assessmentMode === "rerank") {
+    await rerankAssessment();
+    return;
+  }
+  const preferences = assessmentPreferences();
+  assessmentMode = "running";
+  updateWeightDisplay();
+  const response = await fetch(
+    `${AGENT_API_URL}/assessments/${activeAssessmentPlan.plan_id}/execute`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferences, state: sessionState })
+    }
+  );
+  if (!response.ok) throw new Error((await response.json()).detail || "Assessment could not be queued.");
+  const job = await response.json();
+  renderAssessmentProgress(job);
+  await pollAssessmentJob(job.job_id);
+}
+
+async function pollAssessmentJob(jobId) {
+  while (true) {
+    const response = await fetch(`${AGENT_API_URL}/assessment-jobs/${jobId}`);
+    if (!response.ok) throw new Error("Assessment progress is unavailable.");
+    const job = await response.json();
+    renderAssessmentProgress(job);
+    if (["completed", "partial", "failed"].includes(job.status)) {
+      if (job.final_response) {
+        sessionState = job.final_response.state;
+        keepPublicAnalysisLayers();
+        applyMapEvents(job.final_response.events);
+        renderRiskReport(sessionState.risk_report);
+        addMessage("agent", job.final_response.message);
+        assessmentMode = "rerank";
+        decisionControls.hidden = false;
+        ["assessment-scenario", "assessment-horizon", "assessment-threshold"].forEach((id) => {
+          document.getElementById(id).disabled = true;
+        });
+        confirmAssessmentButton.textContent = "Apply re-ranking";
+        updateWeightDisplay();
+      } else {
+        assessmentMode = "plan";
+        decisionControls.hidden = false;
+        assessmentStatusBadge.classList.add("failed");
+        addMessage("agent", job.error || "The confirmed assessment failed. Review the failed step and retry.");
+        updateWeightDisplay();
+      }
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }
+}
+
+async function rerankAssessment() {
+  const preferences = assessmentPreferences();
+  assessmentMode = "running";
+  updateWeightDisplay();
+  assessmentStatusBadge.textContent = "Re-ranking";
+  assessmentStatusBadge.className = "decision-status running";
+  const response = await fetch(
+    `${AGENT_API_URL}/analysis/runs/${sessionState.recent_analysis_run_id}/rerank`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        weights: preferences.weights,
+        include_simd: preferences.include_simd,
+        scenario_name: preferences.priority_scenario
+      })
+    }
+  );
+  if (!response.ok) throw new Error((await response.json()).detail || "Re-ranking failed.");
+  const payload = await response.json();
+  const oldPriorityIds = sessionState.analysis_layers
+    .filter((layer) => layer.style === "priority")
+    .map((layer) => layer.id);
+  oldPriorityIds.forEach((id) => {
+    const rendered = analysisLayerObjects.get(id);
+    if (rendered) map.removeLayer(rendered);
+    analysisLayerObjects.delete(id);
+  });
+  sessionState.analysis_layers = sessionState.analysis_layers.filter((layer) => layer.style !== "priority");
+  sessionState.visible_analysis_layer_ids = sessionState.visible_analysis_layer_ids.filter((id) => !oldPriorityIds.includes(id));
+  sessionState.analysis_layers.push(...payload.run.map_layers);
+  sessionState.visible_analysis_layer_ids = payload.run.map_layers.filter((layer) => layer.visible).map((layer) => layer.id);
+  sessionState.recent_analysis_run_id = payload.run.run_id;
+  if (sessionState.risk_report) {
+    sessionState.risk_report.summary =
+      `Priority was re-ranked from persisted components with quality status ${payload.quality.status}; no weather API or Hazard recomputation was used.`;
+    sessionState.risk_report.key_findings = (payload.run.summary.top_areas || []).slice(0, 5).map((item) =>
+      `Rank ${item.rank}: ${item.name || item.id} — priority ${item.priority_score?.toFixed(3) ?? "unavailable"}, ` +
+      `hazard ${item.hazard_score?.toFixed(3) ?? "unavailable"}, exposure ${item.exposure_score?.toFixed(3) ?? "unavailable"}, ` +
+      `vulnerability ${item.vulnerability_score?.toFixed(3) ?? "unavailable"}; rank change ${item.rank_change > 0 ? "+" : ""}${item.rank_change ?? "unavailable"}.`
+    );
+    sessionState.risk_report.evidence = [
+      ...(sessionState.risk_report.evidence || []).filter((item) => item.label !== "Re-ranking run"),
+      { label: "Re-ranking run", value: payload.run.run_id, source: "OASIS deterministic priority rerank", observed_at: null, source_url: null }
+    ];
+    renderRiskReport(sessionState.risk_report);
+  }
+  applyMapEvents([{ type: "sync_analysis_layers", layer_ids: payload.run.map_layers.map((layer) => layer.id) }]);
+  const top = payload.run.summary.top_areas || [];
+  addMessage(
+    "agent",
+    top.length
+      ? `Re-ranked without weather API calls. ${top[0].name || top[0].id} is now rank 1 (${top[0].rank_change >= 0 ? "+" : ""}${top[0].rank_change || 0} places). Quality: ${payload.quality.status}.`
+      : `Re-ranking completed with quality status ${payload.quality.status}.`
+  );
+  assessmentMode = "rerank";
+  assessmentStatusBadge.textContent = `Re-ranked · ${payload.quality.status}`;
+  assessmentStatusBadge.className = `decision-status ${payload.quality.status === "fail" ? "failed" : ""}`;
+  renderAnalysisLayerControls();
+  updateWeightDisplay();
 }
 
 function setPanelView(view) {
@@ -136,7 +356,28 @@ conversationTab.addEventListener("click", () => setPanelView("conversation"));
 riskReportTab.addEventListener("click", () => setPanelView("report"));
 
 function analysisLayerById(id) {
-  return sessionState.analysis_layers.find((layer) => layer.id === id);
+  return sessionState.analysis_layers.find((layer) => layer.id === id && isPublicAnalysisLayer(layer));
+}
+
+function isPublicAnalysisLayer(descriptor) {
+  return descriptor.kind !== "wms" || !/\bhazard index\b/i.test(descriptor.label);
+}
+
+function keepPublicAnalysisLayers() {
+  const diagnosticIds = sessionState.analysis_layers
+    .filter((layer) => !isPublicAnalysisLayer(layer))
+    .map((layer) => layer.id);
+  diagnosticIds.forEach((id) => {
+    const rendered = analysisLayerObjects.get(id);
+    if (rendered) map.removeLayer(rendered);
+    analysisLayerObjects.delete(id);
+  });
+  const publicIds = new Set(
+    sessionState.analysis_layers.filter(isPublicAnalysisLayer).map((layer) => layer.id)
+  );
+  sessionState.analysis_layers = sessionState.analysis_layers.filter(isPublicAnalysisLayer);
+  sessionState.visible_analysis_layer_ids = sessionState.visible_analysis_layer_ids
+    .filter((id) => publicIds.has(id));
 }
 
 function geoJsonStyle(feature, descriptor) {
@@ -231,7 +472,7 @@ function updateAnalysisLegend() {
 function renderAnalysisLayerControls() {
   const container = document.getElementById("analysis-layer-list");
   container.replaceChildren();
-  sessionState.analysis_layers.forEach((descriptor) => {
+  sessionState.analysis_layers.filter(isPublicAnalysisLayer).forEach((descriptor) => {
     const button = document.createElement("button");
     const visible = sessionState.visible_analysis_layer_ids.includes(descriptor.id);
     button.type = "button";
@@ -678,7 +919,7 @@ async function askAgent(prompt) {
   }
   setPanelView("conversation");
   addMessage("user", prompt);
-  const typing = addMessage("agent", "Choosing and running map tools…", true);
+  const typing = addMessage("agent", "Interpreting the request and preparing the smallest relevant toolset…", true);
   const input = document.getElementById("agent-input");
   const submit = document.querySelector("#agent-form button");
   input.disabled = true;
@@ -686,8 +927,12 @@ async function askAgent(prompt) {
   try {
     const response = await runAgentTurn(prompt);
     sessionState = response.state;
+    keepPublicAnalysisLayers();
     applyMapEvents(response.events);
     renderRiskReport(sessionState.risk_report);
+    if (response.pending_assessment || sessionState.pending_assessment) {
+      renderAssessmentPlan(response.pending_assessment || sessionState.pending_assessment);
+    }
     typing.remove();
     addMessage("agent", response.message);
   } catch (error) {
@@ -721,6 +966,34 @@ document.getElementById("agent-form").addEventListener("submit", (event) => {
 
 document.querySelectorAll(".prompt-chip").forEach((button) => {
   button.addEventListener("click", () => askAgent(button.dataset.prompt));
+});
+
+document.querySelectorAll("[data-preset]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const preset = button.dataset.preset;
+    setDecisionWeights(PRIORITY_PRESETS[preset], preset);
+  });
+});
+
+Object.values(weightInputs).forEach((input) => {
+  input.addEventListener("input", () => {
+    selectedPriorityPreset = "custom";
+    document.querySelectorAll("[data-preset]").forEach((button) => button.classList.remove("active"));
+    updateWeightDisplay();
+  });
+});
+
+confirmAssessmentButton.addEventListener("click", async () => {
+  try {
+    await executeAssessment();
+  } catch (error) {
+    assessmentMode = sessionState.recent_analysis_run_id ? "rerank" : "plan";
+    decisionControls.hidden = false;
+    assessmentStatusBadge.textContent = "Action failed";
+    assessmentStatusBadge.className = "decision-status failed";
+    addMessage("agent", error instanceof Error ? error.message : "Assessment action failed.");
+    updateWeightDisplay();
+  }
 });
 
 refreshSetup(true);

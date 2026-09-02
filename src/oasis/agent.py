@@ -1,10 +1,12 @@
 """The minimal model-portable PydanticAI observation Agent."""
 
 from pydantic_ai import Agent
+from pydantic_ai.toolsets import FilteredToolset
 
 from oasis.deps import Deps, MapAgentDeps
 from oasis.models.agent_output import AgentOutput
 from oasis.models.map_conversation import MapAgentAnswer
+from oasis.models.assessment import AnalysisIntent, IntentCategory
 from oasis.toolsets import (
     area_tools,
     analysis_tools,
@@ -77,15 +79,12 @@ human preferences rather than objective truth.
 After an analysis tool succeeds, do not repeat the same analysis with identical
 inputs in the same turn; answer from its returned summary or reuse its run ID.
 
-When a Glasgow question asks for flood risk, exposure, social vulnerability,
-equity, or priority across multiple areas, call
-run_core_flood_priority_assessment directly. It is the deterministic one-call
-pipeline and already performs the required readiness checks and all-hazards
-orchestration. Do not ask the model to construct PriorityUnitInput values. Use
-the default future 24-hour, class >= 2, social_equity settings unless the user
-specifies another scenario. Describe the city result as a spatial distribution
-with relative priority areas, not as one citywide risk class. Explicit requests
-for hazard alone remain hazard-only analyses.
+For Glasgow-wide risk, exposure, vulnerability, equity, or priority requests,
+respect the human-confirmed assessment plan supplied in the session. Do not
+start a value-laden citywide priority calculation before confirmation. Once a
+confirmed workflow returns evidence, describe the result as a spatial
+distribution with relative priority areas, not as one citywide risk class.
+Explicit requests for hazard alone remain hazard-only analyses.
 
 For future-time flood-risk questions, never present the current-hazard raster as
 a forecast. Use the Core Analyst future hazard tools with the requested forecast
@@ -140,15 +139,126 @@ turns that do not assess risk, return risk_report as null.
 """.strip()
 
 
+SPATIAL_TOOLSETS = [
+    map_tools,
+    map_rainfall_tools,
+    current_hazard_tools,
+    analysis_tools,
+]
+
+
+# Kept as the complete public tool catalogue for direct smoke tests and CLI
+# inspection. Production map turns use ``spatial_execution_agent`` with a
+# filtered subset selected from the structured intent.
 spatial_agent = Agent(
     deps_type=MapAgentDeps,
     output_type=MapAgentAnswer,
     instructions=SPATIAL_AGENT_INSTRUCTIONS,
     retries=2,
-    toolsets=[
-        map_tools,
-        map_rainfall_tools,
-        current_hazard_tools,
-        analysis_tools,
-    ],
+    toolsets=SPATIAL_TOOLSETS,
 )
+
+
+spatial_execution_agent = Agent(
+    deps_type=MapAgentDeps,
+    output_type=MapAgentAnswer,
+    instructions=SPATIAL_AGENT_INSTRUCTIONS,
+    retries=2,
+)
+
+
+INTENT_ROUTER_INSTRUCTIONS = """
+Classify the user's requested map task. Return structured intent only and do
+not answer the question. In this system, citywide flood risk means the complete
+Hazard–Exposure–Vulnerability assessment, even when the user does not name all
+three components. Therefore use integrated_risk for broad questions about flood
+risk, impacts, affected communities, vulnerability, equity, disadvantaged
+communities, intervention, or priority across Glasgow. Use city_hazard only
+when the user explicitly asks for physical hazard, hazard classes, intensity,
+extent, or the separate pluvial/fluvial/coastal hazard layers without asking
+for risk or impacts. Use historical_validation for an explicitly past issue
+time, hindcast, backtest, or
+validation event. A named point/postcode risk is point_risk. Rainfall and water
+observations are rainfall_water. Routes and nearby facilities are route_nearby.
+Use setup_help for configuration, data readiness, or unsupported capabilities.
+Infer scenario and horizon from meaning, not exact wording. A next-day request
+is future with a 24-hour horizon. Keep the rationale under one sentence.
+""".strip()
+
+
+intent_agent = Agent(
+    output_type=AnalysisIntent,
+    instructions=INTENT_ROUTER_INSTRUCTIONS,
+    retries=1,
+)
+
+
+_TOOLS_BY_INTENT: dict[IntentCategory, frozenset[str]] = {
+    "point_risk": frozenset({
+        "geocode_location",
+        "display_locations",
+        "get_current_hazard_status",
+        "refresh_current_hazard",
+        "query_hazard_points",
+        "set_hazard_layer_visibility",
+    }),
+    "rainfall_water": frozenset({
+        "geocode_location",
+        "display_locations",
+        "get_latest_rainfall_near_location",
+        "get_core_coastal_dynamic_evidence",
+        "list_nrfa_historical_stations",
+        "query_nrfa_historical_series",
+    }),
+    "route_nearby": frozenset({
+        "geocode_location",
+        "search_nearby_places",
+        "get_candidate_routes",
+        "analyse_route_hazard",
+        "rank_routes",
+        "display_routes",
+        "get_current_hazard_status",
+        "query_hazard_points",
+    }),
+    "city_hazard": frozenset({
+        "get_core_analysis_data_readiness",
+        "run_core_hazard_analysis",
+        "run_all_core_hazards",
+        "get_core_coastal_dynamic_evidence",
+        "compare_core_analysis_runs",
+    }),
+    "integrated_risk": frozenset({
+        "get_core_analysis_data_readiness",
+        "run_core_flood_priority_assessment",
+        "compare_core_analysis_runs",
+        "run_core_priority_sensitivity",
+    }),
+    "historical_validation": frozenset({
+        "get_core_analysis_data_readiness",
+        "run_historical_flood_validation",
+        "query_nrfa_historical_series",
+        "compare_core_analysis_runs",
+    }),
+    "setup_help": frozenset({
+        "get_core_analysis_data_readiness",
+        "prepare_core_analysis_inputs",
+        "plan_generalized_core_analysis",
+    }),
+}
+
+
+def tool_names_for_intent(category: IntentCategory) -> frozenset[str]:
+    return _TOOLS_BY_INTENT[category]
+
+
+def filtered_toolsets(category: IntentCategory) -> list[FilteredToolset[MapAgentDeps]]:
+    """Expose only the bounded tool schemas relevant to one routed request."""
+
+    allowed = tool_names_for_intent(category)
+    return [
+        FilteredToolset(
+            toolset,
+            lambda _ctx, definition, names=allowed: definition.name in names,
+        )
+        for toolset in SPATIAL_TOOLSETS
+    ]
