@@ -340,10 +340,7 @@ def build_simd_2020v2_indicators(source_path: str | Path, output_path: str | Pat
     output_path = Path(output_path)
     if source_path.suffix.lower() not in {".xlsx", ".xlsm"}:
         raise ValueError(f"Unsupported SIMD source format: {source_path.suffix}")
-    try:
-        from openpyxl import load_workbook
-    except ImportError as exc:
-        raise RuntimeError("openpyxl is required to read SIMD .xlsx inputs.") from exc
+    from openpyxl import load_workbook
 
     workbook = load_workbook(source_path, read_only=True, data_only=True)
     if "Data" not in workbook.sheetnames:

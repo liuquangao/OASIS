@@ -15,8 +15,8 @@ from rasterio.windows import Window, from_bounds, transform as window_transform
 from shapely.geometry import mapping, shape
 from shapely.validation import make_valid
 
-from core_analyst.data_sources import DataSource, RasterGrid, write_raster
-from core_analyst.validators.raster_validator import RasterValidator
+from core_analyst.data_sources import DATASET_LOAD_ERRORS, DataSource, RasterGrid, write_raster
+from core_analyst.validators.raster_validator import GEOMETRY_INPUT_ERRORS, RasterValidator
 
 
 DEFAULT_REQUIRED_FACILITY_TYPES = ("hospital", "care_home", "school", "emergency_service")
@@ -260,7 +260,7 @@ class ExposureAnalyst:
             return self._population_vector_exposure(source, hazard, exposed_mask, provenance, warnings)
         try:
             grid = self._read_population_grid(source, hazard)
-        except Exception as exc:
+        except DATASET_LOAD_ERRORS as exc:
             warnings.append({"code": "population_unavailable", "message": str(exc)})
             provenance["exposure_sources"]["population"] = {"status": "unavailable", "error": str(exc)}
             return {"total": None, "exposed": None, "exposure_ratio": None, "status": "unavailable"}
@@ -476,7 +476,7 @@ class ExposureAnalyst:
                 collection = GeoJSONVectorSource(source_key, source).get_features()
             else:
                 raise TypeError("Vector exposure source must be a VectorExposureSource, collection, or GeoJSON path.")
-        except Exception as exc:
+        except (*DATASET_LOAD_ERRORS, TypeError) as exc:
             warnings.append({"code": f"{source_key}_unavailable", "message": str(exc)})
             provenance["exposure_sources"][source_key] = {"status": "unavailable", "error": str(exc)}
             return None
@@ -554,7 +554,7 @@ class ExposureAnalyst:
             if collection.crs != hazard_crs:
                 geometry_payload = transform_geom(collection.crs, hazard_crs, geometry_payload)
             geometry = shape(geometry_payload)
-        except Exception as exc:
+        except GEOMETRY_INPUT_ERRORS as exc:
             warnings.append({"code": f"{source_key}_malformed_geometry", "message": f"Feature {index}: {exc}"})
             return None
 
@@ -612,7 +612,7 @@ def run_exposure_analysis(
     hazard_threshold: int | None = None,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    exposure_config = (config or {}).get("exposure", config or {})
+    exposure_config = (config or {}).get("exposure", {})
     threshold = hazard_threshold
     if threshold is None:
         threshold = int(exposure_config.get("hazard_threshold", 2))

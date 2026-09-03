@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from rasterio.errors import RasterioError
+
 from core_analyst.analysts.pluvial_prediction import PluvialPredictionAnalyst
 from core_analyst.analysts.priority_analysis import (
     compare_priority_scenarios as _compare_priority_scenarios,
@@ -12,7 +14,12 @@ from core_analyst.analysts.priority_analysis import (
 )
 from core_analyst.analysts.temporal_reference_flood import TemporalReferenceFloodAnalyst
 from core_analyst.coastal_dynamic import CoastalDynamicConfig, build_coastal_dynamic_evidence
-from core_analyst.data_sources import DataSource, MockRainfallAPISource, SEPAWaterLevelAPISource
+from core_analyst.data_sources import (
+    DataSource,
+    DynamicDataError,
+    MockRainfallAPISource,
+    SEPAWaterLevelAPISource,
+)
 from core_analyst.study_area import load_glasgow_1km_buffer_bounds
 from core_analyst.utils.config import load_config
 from core_analyst.workflows.hydromind_real_data import (
@@ -20,6 +27,11 @@ from core_analyst.workflows.hydromind_real_data import (
     build_reference_flood_sources,
 )
 
+
+# A hazard run reads rasters, config and live gauge feeds. Surface those failures to the
+# model as a failed tool result; let programming errors propagate so they are not
+# misreported as unavailable data.
+ANALYSIS_INPUT_ERRORS = (DynamicDataError, OSError, RasterioError, ValueError, KeyError)
 
 SUPPORTED_HAZARDS = {"pluvial", "fluvial", "coastal"}
 SUPPORTED_SCENARIOS = {"current", "future"}
@@ -75,7 +87,7 @@ def run_hazard_analysis(
                 water_level_buffer_meters=water_level_buffer_meters,
                 use_live_data=use_live_data,
             )
-    except Exception as exc:
+    except ANALYSIS_INPUT_ERRORS as exc:
         return _failure("run_hazard_analysis", parameters, exc)
 
     return _format_hazard_result(
@@ -136,7 +148,7 @@ def run_hazard_scenarios(
                 rainfall_observation_source=rainfall_observation_source,
                 rainfall_forecast_source=rainfall_forecast_source,
             )
-    except Exception as exc:
+    except ANALYSIS_INPUT_ERRORS as exc:
         failure = _failure("run_hazard_scenarios", parameters, exc)
         return {scenario: dict(failure) for scenario in sorted(SUPPORTED_SCENARIOS)}
 

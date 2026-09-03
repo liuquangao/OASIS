@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from core_analyst.data_sources import DataSource, RasterGrid, write_raster
+from core_analyst.data_sources import DATASET_LOAD_ERRORS, DataSource, RasterGrid, write_raster
 from core_analyst.tools.classification import HazardClassifier
 from core_analyst.tools.factor_analyzers import RainfallAnalyzer
 from core_analyst.tools.weighted_overlay import WeightedOverlayAnalyzer
@@ -123,7 +123,7 @@ class TemporalReferenceFloodAnalyst:
         for name, source in sources.items():
             try:
                 grid = source.get_data(reference=reference)
-            except Exception as exc:
+            except DATASET_LOAD_ERRORS as exc:
                 metadata[name] = {"status": "unavailable", "error": str(exc)}
                 continue
 

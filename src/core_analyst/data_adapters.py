@@ -6,10 +6,16 @@ from typing import Any
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
+from rasterio.errors import RasterioError
 from rasterio.warp import reproject
 
-from core_analyst.data_sources import DataSource, RasterGrid
+from core_analyst.data_sources import DataSource, DynamicDataError, RasterGrid
 from core_analyst.validators.raster_validator import RasterValidator
+
+
+# Reasons a primary dataset can genuinely be unusable: missing/unreadable files and live
+# feed failures. Anything else is a bug and must not be hidden behind a silent downgrade.
+PRIMARY_SOURCE_ERRORS = (DynamicDataError, OSError, RasterioError, ValueError, KeyError)
 
 
 class AlignedRasterSource(DataSource):
@@ -172,7 +178,7 @@ class FallbackDataSource(DataSource):
                 },
             }
             return grid
-        except Exception as exc:
+        except PRIMARY_SOURCE_ERRORS as exc:
             grid = self.fallback.get_data(reference=reference)
             grid.name = self.name
             grid.metadata = {

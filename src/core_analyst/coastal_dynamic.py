@@ -15,6 +15,10 @@ from rasterio.warp import transform as transform_coords
 
 from core_analyst.study_area import StudyAreaBounds, load_glasgow_1km_buffer_bounds
 
+# Failures we expect from the EA / ADMIRALTY HTTP APIs: transport errors and timeouts
+# (OSError), unparseable or malformed JSON (ValueError), and missing payload fields.
+EXTERNAL_EVIDENCE_ERRORS = (OSError, ValueError, KeyError, TypeError)
+
 
 EA_FLOOD_MONITORING_BASE = "https://environment.data.gov.uk/flood-monitoring"
 EA_TIDE_GAUGE_DOC = "https://environment.data.gov.uk/flood-monitoring/doc/tidegauge"
@@ -82,7 +86,7 @@ class EnvironmentAgencyTideGaugeClient:
     def evaluate_station(self, station_reference: str, study_area: StudyAreaBounds | None) -> dict[str, Any]:
         try:
             station = self.station_metadata(station_reference)
-        except Exception as exc:
+        except EXTERNAL_EVIDENCE_ERRORS as exc:
             return {
                 "station_reference": station_reference,
                 "status": "unavailable",
@@ -261,7 +265,7 @@ def _historical_tide_dataset(client: EnvironmentAgencyTideGaugeClient, station: 
         return _ea_tide_unavailable("historical", "no_relevant_tide_gauge_measure_discovered")
     try:
         readings = client.historical_readings(measure["measure_id"], hours=hours)
-    except Exception as exc:
+    except EXTERNAL_EVIDENCE_ERRORS as exc:
         return _ea_tide_unavailable("historical", str(exc))
     normalised = [_reading_record(reading, station, measure) for reading in readings]
     return {
@@ -286,7 +290,7 @@ def _current_tide_dataset(client: EnvironmentAgencyTideGaugeClient, station: dic
         return _ea_tide_unavailable("current", "no_relevant_tide_gauge_measure_discovered")
     try:
         reading = client.latest_reading(measure["measure_id"])
-    except Exception as exc:
+    except EXTERNAL_EVIDENCE_ERRORS as exc:
         return _ea_tide_unavailable("current", str(exc))
     record = _reading_record(reading, station, measure) if reading else None
     return {
@@ -401,7 +405,7 @@ def _admiralty_unavailable(reason: str) -> dict[str, Any]:
 def _safe_call(fn) -> dict[str, Any]:
     try:
         return fn()
-    except Exception as exc:
+    except EXTERNAL_EVIDENCE_ERRORS as exc:
         return {"status": "unavailable", "type": "observed", "reason_if_unavailable": str(exc), "retrieved_at": _utc_now()}
 
 

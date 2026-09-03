@@ -26,7 +26,7 @@ class PriorityAnalysisEngine:
     """Deterministic priority, trade-off, and sensitivity analysis."""
 
     def __init__(self, config: dict[str, Any] | None = None):
-        self.config = (config or {}).get("priority_analysis", config or {})
+        self.config = (config or {}).get("priority_analysis", {})
 
     def run_priority_analysis(
         self,

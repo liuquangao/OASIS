@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import rasterio
+from rasterio.errors import RasterioError
 
 ADMIRALTY_ENV_KEYS = ("ADMIRALTY_API_KEY", "UKHO_API_KEY", "ADMIRALTY_TIDAL_API_KEY", "ADMIRALTY_SUBSCRIPTION_KEY")
 
@@ -393,7 +394,7 @@ def _gdb_layers(gdb_path: Path) -> set[str]:
     try:
         with rasterio.open(gdb_path) as dataset:
             return {Path(item.split(":")[-1]).name for item in dataset.subdatasets}
-    except Exception:
+    except (OSError, RasterioError):
         return set()
 
 

@@ -14,7 +14,10 @@ import time
 import numpy as np
 import rasterio
 from rasterio.coords import BoundingBox
+from rasterio.errors import RasterioError
 from rasterio.warp import transform as transform_coords
+
+from core_analyst.study_area import StudyAreaBounds
 
 
 @dataclass
@@ -73,6 +76,12 @@ class DynamicDataError(RuntimeError):
     def __init__(self, diagnostics: dict[str, Any]):
         self.diagnostics = diagnostics
         super().__init__(json.dumps(diagnostics))
+
+
+# Reasons one input dataset can be genuinely unusable: a live feed that failed after
+# retry, unreadable or missing files (OSError covers RasterioIOError), an unusable
+# CRS/profile (RasterioError), and malformed contents (ValueError, KeyError).
+DATASET_LOAD_ERRORS = (DynamicDataError, OSError, RasterioError, ValueError, KeyError)
 
 
 class NRFADailyZipSource:
@@ -312,8 +321,8 @@ class RealTimeAPISource(DataSource):
         )
 
     def _retrieve_with_retries(self) -> tuple[dict[str, Any], dict[str, Any]]:
-        attempts = max(int(getattr(self, "max_attempts", 1)), 1)
-        backoff = max(float(getattr(self, "retry_backoff_seconds", 0.0)), 0.0)
+        attempts = self.max_attempts
+        backoff = self.retry_backoff_seconds
         errors: list[dict[str, Any]] = []
         for attempt in range(1, attempts + 1):
             try:
@@ -328,7 +337,7 @@ class RealTimeAPISource(DataSource):
                     "errors": errors,
                     "fallback_used": None,
                 }
-            except Exception as exc:
+            except (OSError, ValueError, KeyError, TypeError) as exc:
                 retry_after = None
                 if getattr(exc, "code", None) == 429:
                     header = getattr(exc, "headers", {}).get("Retry-After")
@@ -580,13 +589,15 @@ class SEPARainfallAPISource(RealTimeAPISource):
         top = max(bounds.bottom, bounds.top) + buffer_meters
 
         discovered: list[dict[str, Any]] = []
+        skipped = 0
         for station in payload:
             try:
                 lon = float(station["station_longitude"])
                 lat = float(station["station_latitude"])
                 xs, ys = transform_coords("EPSG:4326", reference.profile["crs"], [lon], [lat])
                 x, y = float(xs[0]), float(ys[0])
-            except Exception:
+            except (KeyError, TypeError, ValueError):
+                skipped += 1
                 continue
             if left <= x <= right and bottom <= y <= top:
                 discovered.append(
@@ -601,6 +612,7 @@ class SEPARainfallAPISource(RealTimeAPISource):
                         "itemDate": station.get("itemDate"),
                     }
                 )
+        self.discovery_metadata["skipped_malformed_stations"] = skipped
         return discovered
 
     def observations_to_grid(self, observations: dict[str, Any], reference: RasterGrid) -> np.ndarray:
@@ -789,13 +801,15 @@ class SEPAWaterLevelAPISource(RealTimeAPISource):
 
         bounds = self._reference_bounds(self._reference, self.discovery_buffer_meters, self.discovery_bounds)
         stations: list[dict[str, Any]] = []
+        skipped = 0
         for feature in payload.get("features", []):
             try:
                 lon, lat = feature["geometry"]["coordinates"][:2]
                 xs, ys = transform_coords("EPSG:4326", self._reference.profile["crs"], [lon], [lat])
                 x, y = float(xs[0]), float(ys[0])
                 value = float(feature["properties"]["ts_value"])
-            except Exception:
+            except (KeyError, TypeError, ValueError):
+                skipped += 1
                 continue
             if bounds.left <= x <= bounds.right and bounds.bottom <= y <= bounds.top:
                 stations.append(
@@ -815,6 +829,7 @@ class SEPAWaterLevelAPISource(RealTimeAPISource):
             "source_url": url,
             "station_discovery": self.discovery_metadata,
             "stations": stations,
+            "skipped_malformed_features": skipped,
             "risk_thresholds_m": self.risk_thresholds_m,
             "prototype_note": (
                 "SEPA river/tidal level observations are converted to a relative risk grid using fixed "
@@ -864,33 +879,31 @@ def _reference_grid_bounds(reference: RasterGrid) -> BoundingBox:
     )
 
 
-def _discovery_bounds_for_reference(reference: RasterGrid, discovery_bounds: Any | None = None) -> BoundingBox:
+def _discovery_bounds_for_reference(reference: RasterGrid, discovery_bounds: StudyAreaBounds | None = None) -> BoundingBox:
     if discovery_bounds is None:
         return _reference_grid_bounds(reference)
-    if hasattr(discovery_bounds, "for_crs"):
-        return discovery_bounds.for_crs(reference.profile.get("crs"))
-    return discovery_bounds
+    return discovery_bounds.for_crs(reference.profile.get("crs"))
 
 
-def _discovery_metadata(discovery_bounds: Any | None, buffer_meters: float) -> dict[str, Any]:
+def _discovery_metadata(discovery_bounds: StudyAreaBounds | None, buffer_meters: float) -> dict[str, Any]:
     if discovery_bounds is None:
         return {
             "bounds_source": "reference_grid",
             "additional_buffer_meters": buffer_meters,
         }
-    bounds = getattr(discovery_bounds, "bounds", None)
+    bounds = discovery_bounds.bounds
     return {
-        "bounds_source": getattr(discovery_bounds, "path", "explicit_bounds"),
-        "bounds_name": getattr(discovery_bounds, "name", None),
-        "bounds": None if bounds is None else {
+        "bounds_source": discovery_bounds.path,
+        "bounds_name": discovery_bounds.name,
+        "bounds": {
             "left": bounds.left,
             "bottom": bounds.bottom,
             "right": bounds.right,
             "top": bounds.top,
         },
-        "crs": None if getattr(discovery_bounds, "crs", None) is None else str(discovery_bounds.crs),
+        "crs": None if discovery_bounds.crs is None else str(discovery_bounds.crs),
         "additional_buffer_meters": buffer_meters,
-        "metadata": getattr(discovery_bounds, "metadata", {}),
+        "metadata": discovery_bounds.metadata,
     }
 
 

@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from pydantic_ai.exceptions import ModelAPIError
 
 from hydromind.runtime import run_spatial_agent
 from hydromind.settings import Settings
@@ -94,6 +95,11 @@ async def run_map_turn(request: MapTurnRequest) -> MapAgentResponse:
         else:
             detail = "An external service required by the Agent is unavailable."
         raise HTTPException(status_code=502, detail=detail) from exc
+    except ModelAPIError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"The language model at {settings.openai_base_url or 'the configured endpoint'} is unavailable: {exc}",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

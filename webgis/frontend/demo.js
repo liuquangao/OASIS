@@ -1093,7 +1093,7 @@ async function askAgent(prompt) {
     let message = "The tool-using Agent is unavailable.";
     if (error instanceof TypeError) {
       message = await agentApiReachable()
-        ? "The Agent API is online, but this request failed inside the analysis workflow."
+        ? "The Agent API is online, but this request ended without a response. Check the Agent API log for the cause."
         : "Cannot connect to the Agent API at 127.0.0.1:8000.";
     }
     else if (error instanceof Error) message = error.message;

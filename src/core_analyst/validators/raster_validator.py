@@ -1,16 +1,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from rasterio.enums import Resampling
+from rasterio.errors import RasterioError
 from rasterio.transform import array_bounds
 from rasterio.warp import reproject
+from shapely.errors import ShapelyError
 from shapely.geometry import shape
 from shapely.validation import make_valid
 
 from core_analyst.data_sources import RasterGrid
+
+# shapely.geometry.shape() signals malformed GeoJSON with any of these: a non-dict
+# geometry raises AttributeError, a missing member KeyError, bad coordinates ValueError,
+# and an unknown "type" GeometryTypeError.
+GEOMETRY_INPUT_ERRORS = (ShapelyError, AttributeError, KeyError, TypeError, ValueError)
+# Reprojection failures: unreadable data (OSError), bad CRS/transform (RasterioError),
+# incompatible parameters (ValueError).
+REPROJECTION_ERRORS = (OSError, RasterioError, ValueError)
+
+if TYPE_CHECKING:
+    from core_analyst.analysts.exposure_analysis import VectorFeatureCollection
 
 
 @dataclass
@@ -151,7 +164,7 @@ class RasterValidator:
                 "target_shape": before["reference"]["shape"],
                 "resampling_method": resampling.name,
             })
-        except Exception as exc:
+        except REPROJECTION_ERRORS as exc:
             errors.append(str(exc))
             return grid, ValidationResult(
                 valid=False,
@@ -207,7 +220,7 @@ class RasterValidator:
 
     def validate_vector_collection(
         self,
-        collection: Any,
+        collection: VectorFeatureCollection,
         *,
         target_crs: str | None = None,
         required_attributes: list[str] | None = None,
@@ -222,8 +235,8 @@ class RasterValidator:
         duplicates: list[Any] = []
         required_attributes = required_attributes or []
         geometry_types = geometry_types or []
-        features = list(getattr(collection, "features", []))
-        crs = getattr(collection, "crs", None)
+        features = list(collection.features)
+        crs = collection.crs
         if not crs:
             errors.append("Vector CRS is missing.")
         diagnostics = {
@@ -235,7 +248,7 @@ class RasterValidator:
             "duplicate_identifiers": "match",
         }
         for index, feature in enumerate(features):
-            properties = getattr(feature, "properties", {})
+            properties = feature.properties
             for field in required_attributes:
                 if field not in properties:
                     diagnostics["required_attributes"] = "mismatch"
@@ -246,8 +259,8 @@ class RasterValidator:
                     duplicates.append(identifier)
                 identifiers.add(identifier)
             try:
-                geometry = shape(getattr(feature, "geometry"))
-            except Exception as exc:
+                geometry = shape(feature.geometry)
+            except GEOMETRY_INPUT_ERRORS as exc:
                 diagnostics["invalid_geometry"] = "mismatch"
                 errors.append(f"Feature {index}: malformed geometry ({exc}).")
                 continue
@@ -281,8 +294,8 @@ class RasterValidator:
             warnings=warnings,
             diagnostics=diagnostics,
             provenance={
-                "source": getattr(collection, "source", None),
-                "dataset_name": getattr(collection, "name", None),
+                "source": collection.source,
+                "dataset_name": collection.name,
                 "original_crs": crs,
                 "target_crs": target_crs,
                 "feature_count": len(features),

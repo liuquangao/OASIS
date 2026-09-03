@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from core_analyst.data_sources import DataSource, RasterGrid, write_raster
+from core_analyst.data_sources import DATASET_LOAD_ERRORS, DataSource, RasterGrid, write_raster
 from core_analyst.tools.classification import HazardClassifier
 from core_analyst.tools.factor_analyzers import (
     ElevationRiskAnalyzer,
@@ -156,7 +156,7 @@ class PluvialPredictionAnalyst:
                     "classes_present": sorted(int(v) for v in np.unique(values[np.isfinite(values)])[:20]),
                     "role": "static/baseline reference, calibration or validation; not a dynamic forcing input",
                 }
-            except Exception as exc:
+            except DATASET_LOAD_ERRORS as exc:
                 metadata[name] = {"status": "unavailable", "error": str(exc)}
         return metadata
 

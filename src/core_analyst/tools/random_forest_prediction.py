@@ -36,13 +36,7 @@ class RandomForestRiskPredictor:
         training_target: np.ndarray,
         prediction_features: dict[str, np.ndarray],
     ) -> RandomForestRiskResult:
-        try:
-            from sklearn.ensemble import RandomForestRegressor
-        except ImportError as exc:
-            raise ImportError(
-                "Random forest prediction requires scikit-learn. Install project dependencies with "
-                "`pip install -r requirements.txt`."
-            ) from exc
+        from sklearn.ensemble import RandomForestRegressor
 
         feature_names = list(training_features)
         if not feature_names:
