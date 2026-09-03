@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
 from urllib.request import urlopen
 from zipfile import ZipFile
 import csv

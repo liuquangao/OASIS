@@ -118,19 +118,3 @@ class AssessmentJob(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-
-class HistoricalValidationSummary(BaseModel):
-    issue_time: datetime
-    valid_until: datetime
-    area: str
-    status: Literal["success", "partial", "unavailable", "failed"]
-    forecast_source: str
-    observation_sources: list[str] = Field(default_factory=list)
-    rainfall_bias_mm: float | None = None
-    rainfall_mae_mm: float | None = None
-    spatial_correlation: float | None = None
-    top_10_overlap: int | None = None
-    rank_correlation: float | None = None
-    interpretation: str = (
-        "Forecast-input and decision-stability validation, not flood-extent accuracy."
-    )

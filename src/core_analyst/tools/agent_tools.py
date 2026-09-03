@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from core_analyst.analysts.exposure_analysis import run_exposure_analysis as _run_exposure
 from core_analyst.analysts.pluvial_prediction import PluvialPredictionAnalyst
 from core_analyst.analysts.priority_analysis import (
     compare_priority_scenarios as _compare_priority_scenarios,
@@ -12,7 +11,6 @@ from core_analyst.analysts.priority_analysis import (
     run_sensitivity_analysis as _run_sensitivity,
 )
 from core_analyst.analysts.temporal_reference_flood import TemporalReferenceFloodAnalyst
-from core_analyst.analysts.vulnerability_analysis import run_vulnerability_analysis as _run_vulnerability
 from core_analyst.coastal_dynamic import CoastalDynamicConfig, build_coastal_dynamic_evidence
 from core_analyst.data_sources import DataSource, MockRainfallAPISource, SEPAWaterLevelAPISource
 from core_analyst.study_area import load_glasgow_1km_buffer_bounds
@@ -153,81 +151,6 @@ def run_hazard_scenarios(
         )
         for scenario in ("current", "future")
     }
-
-
-def run_exposure_analysis(
-    *,
-    hazard_result: dict[str, Any],
-    exposure_sources: dict[str, Any] | None = None,
-    exposure_types: list[str] | None = None,
-    area: str = "glasgow",
-    output_dir: str | Path = "outputs/agent_tools/exposure",
-    hazard_threshold: int | None = None,
-    config: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Expose Priority 1 hazard-to-exposure analysis through a stable tool contract."""
-
-    _validate_area(area)
-    exposure_sources = exposure_sources or {}
-    exposure_types = exposure_types or ["population", "buildings", "critical_infrastructure"]
-    hazard_type = hazard_result.get("hazard_type")
-    scenario = hazard_result.get("scenario")
-    if hazard_type not in SUPPORTED_HAZARDS or scenario not in SUPPORTED_SCENARIOS:
-        raise ToolInputError("hazard_result must contain supported hazard_type and scenario.")
-    if hazard_result.get("status") != "success":
-        return _dependency_unavailable("run_exposure_analysis", "hazard_result", hazard_result)
-    hazard_class = hazard_result.get("outputs", {}).get("hazard_class")
-    if not hazard_class:
-        return _dependency_unavailable("run_exposure_analysis", "hazard_class", hazard_result)
-
-    filtered_sources = {name: exposure_sources.get(name) for name in exposure_types}
-    result = _run_exposure(
-        hazard_raster=hazard_class,
-        exposure_sources=filtered_sources,
-        output_dir=Path(output_dir) / hazard_type / scenario,
-        hazard_type=hazard_type,
-        scenario=scenario,
-        hazard_threshold=hazard_threshold,
-        config=config,
-    )
-    result.setdefault("metadata", {
-        "analysis_method": "hazard_to_exposure",
-        "hazard_type": hazard_type,
-        "scenario": scenario,
-        "diagnostics": result.get("diagnostics", {}),
-    })
-    result["provenance"]["upstream_hazard"] = hazard_result.get("provenance", {})
-    return result
-
-
-def run_vulnerability_analysis(
-    *,
-    area: str = "glasgow",
-    geography_source: Any = None,
-    vulnerability_sources: dict[str, Any] | None = None,
-    vulnerability_dimensions: list[str] | None = None,
-    output_dir: str | Path = "outputs/agent_tools/vulnerability",
-    scenario: str = "current",
-    config: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Expose Priority 2 vulnerability profiling through a stable tool contract."""
-
-    _validate_area(area)
-    scenario = _validate_choice("scenario", scenario, SUPPORTED_SCENARIOS)
-    vulnerability_sources = vulnerability_sources or {}
-    result = _run_vulnerability(
-        geography_source=geography_source,
-        vulnerability_sources=vulnerability_sources,
-        output_dir=Path(output_dir) / scenario,
-        scenario=scenario,
-        config=_filter_vulnerability_config(config, vulnerability_dimensions),
-    )
-    result.setdefault("provenance", {})["tool_parameters"] = {
-        "area": area,
-        "scenario": scenario,
-        "vulnerability_dimensions": vulnerability_dimensions or ["demographic", "socioeconomic", "accessibility"],
-    }
-    return result
 
 
 def run_priority_analysis(
@@ -581,18 +504,6 @@ def _config_path(filename: str) -> Path:
     return candidates[0]
 
 
-def _filter_vulnerability_config(config: dict[str, Any] | None, dimensions: list[str] | None) -> dict[str, Any] | None:
-    if not config or not dimensions:
-        return config
-    filtered = {**config}
-    vulnerability = dict(filtered.get("vulnerability", filtered))
-    for dimension in VULNERABILITY_DIMENSIONS:
-        if dimension not in dimensions and dimension in vulnerability:
-            vulnerability[dimension] = {"indicators": []} if dimension != "accessibility" else {"source_key": "__disabled__"}
-    filtered["vulnerability"] = vulnerability
-    return filtered
-
-
 def _validate_area(area: str) -> None:
     if area.lower() != "glasgow":
         raise ToolInputError("Only Glasgow is currently supported by the local Core Analyst data contract.")
@@ -638,10 +549,6 @@ def _exposure_proxy(exposure_result: dict[str, Any]) -> float | None:
     if critical.get("total"):
         values.append(float(critical.get("exposed", 0)) / float(critical["total"]))
     return None if not values else sum(values) / len(values)
-
-
-def _sum_to_one(weights: dict[str, float]) -> bool:
-    return abs(sum(float(value) for value in weights.values()) - 1.0) <= 1e-6
 
 
 def _json(value: dict[str, Any]) -> str:

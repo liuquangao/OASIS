@@ -512,25 +512,6 @@ class ExposureAnalyst:
             warnings.append({"code": f"{source_key}_vector_qa_error", "message": error})
         return collection
 
-    def _count_intersections(
-        self,
-        collection: VectorFeatureCollection,
-        hazard: RasterGrid,
-        exposed_mask: np.ndarray,
-        source_key: str,
-        warnings: list[dict[str, str]],
-    ) -> tuple[int, int]:
-        total = 0
-        exposed = 0
-        for index, feature in enumerate(collection.features):
-            geometry = self._feature_geometry(feature, collection, hazard, source_key, index, warnings)
-            if geometry is None:
-                continue
-            total += 1
-            if self._intersects_exposed_cells(geometry, hazard, exposed_mask):
-                exposed += 1
-        return total, exposed
-
     def _intersects_exposed_cells(
         self,
         geometry: Any,

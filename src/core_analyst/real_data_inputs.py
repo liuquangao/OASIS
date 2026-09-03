@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -196,29 +196,6 @@ def build_enriched_data_zone_geography(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload), encoding="utf-8")
     return output_path
-
-
-def build_real_exposure_sources(prepared: PreparedRealInputs | dict[str, Any]) -> dict[str, Any]:
-    payload = asdict(prepared) if isinstance(prepared, PreparedRealInputs) else prepared
-    sources: dict[str, Any] = {}
-    if payload.get("data_zone_geography"):
-        sources["population"] = payload["data_zone_geography"]
-    if payload.get("buildings"):
-        sources["buildings"] = payload["buildings"]
-    if payload.get("critical_services"):
-        sources["critical_infrastructure"] = payload["critical_services"]
-    return sources
-
-
-def build_real_vulnerability_sources(prepared: PreparedRealInputs | dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
-    payload = asdict(prepared) if isinstance(prepared, PreparedRealInputs) else prepared
-    geography = payload.get("data_zone_geography")
-    sources: dict[str, Any] = {}
-    if geography and _geojson_has_field(Path(geography), "deprivation_score"):
-        sources["socioeconomic"] = geography
-    if payload.get("critical_services"):
-        sources["critical_services"] = payload["critical_services"]
-    return geography, sources
 
 
 def _pipeline_readiness(
@@ -696,13 +673,6 @@ def _nonempty_geojson(path: str | Path | None) -> bool:
     if not path.is_file() or path.suffix.lower() not in {".geojson", ".json"}:
         return False
     return bool(json.loads(path.read_text(encoding="utf-8")).get("features"))
-
-
-def _geojson_has_field(path: Path, field: str) -> bool:
-    if not _nonempty_geojson(path):
-        return False
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return any(feature.get("properties", {}).get(field) is not None for feature in payload["features"])
 
 
 def _geojson_summary(path: Path) -> dict[str, Any]:

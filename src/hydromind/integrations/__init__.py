@@ -1,10 +1,5 @@
-"""External data-service integrations bound at runtime."""
+"""External data-service integrations bound at runtime.
 
-from .base import HydrometricProvider, RainfallProvider
-from .sepa import SepaTimeSeriesClient
-
-__all__ = [
-    "HydrometricProvider",
-    "RainfallProvider",
-    "SepaTimeSeriesClient",
-]
+Consumers import the submodules directly, for example
+``from hydromind.integrations.sepa import SepaTimeSeriesClient``.
+"""

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import numpy as np
-import rasterio
 from rasterio.enums import Resampling
 from rasterio.transform import array_bounds
 from rasterio.warp import reproject
@@ -31,49 +29,6 @@ class ValidationResult:
 
 
 class RasterValidator:
-    def validate_files(self, raster_paths: dict[str, str | Path]) -> ValidationResult:
-        errors: list[str] = []
-        reference = None
-
-        for name, path_value in raster_paths.items():
-            path = Path(path_value)
-            if not path.exists():
-                errors.append(f"{name}: file does not exist at {path}")
-                continue
-
-            try:
-                with rasterio.open(path) as dataset:
-                    signature = {
-                        "crs": dataset.crs,
-                        "transform": dataset.transform,
-                        "bounds": dataset.bounds,
-                        "res": dataset.res,
-                        "shape": dataset.shape,
-                    }
-            except Exception as exc:  # pragma: no cover - rasterio error text varies
-                errors.append(f"{name}: could not open raster ({exc})")
-                continue
-
-            if reference is None:
-                reference = (name, signature)
-                continue
-
-            ref_name, ref = reference
-            for key in ("crs", "res", "shape"):
-                if signature[key] != ref[key]:
-                    errors.append(f"{name}: {key} does not match {ref_name}")
-            if signature["bounds"] != ref["bounds"]:
-                errors.append(f"{name}: spatial extent does not match {ref_name}")
-            if signature["transform"] != ref["transform"]:
-                errors.append(f"{name}: pixel grid transform does not match {ref_name}")
-
-        return ValidationResult(
-            valid=not errors,
-            errors=errors,
-            diagnostics={"files": "match" if not errors else "mismatch"},
-            status="success" if not errors else "failed",
-        )
-
     def validate_grids(self, grids: dict[str, RasterGrid]) -> ValidationResult:
         errors: list[str] = []
         warnings: list[str] = []

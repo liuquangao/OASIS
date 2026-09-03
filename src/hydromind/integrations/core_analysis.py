@@ -30,20 +30,14 @@ from core_analyst.coastal_dynamic import (
     CoastalDynamicConfig,
     build_coastal_dynamic_evidence,
 )
-from core_analyst.real_data_inputs import (
-    build_real_exposure_sources,
-    build_real_vulnerability_sources,
-    prepare_real_exposure_vulnerability_inputs,
-)
+from core_analyst.real_data_inputs import prepare_real_exposure_vulnerability_inputs
 from core_analyst.tools.agent_tools import (
     compare_priority_scenarios,
     compare_scenarios,
-    run_exposure_analysis,
     run_hazard_analysis,
     run_hazard_scenarios,
     run_priority_analysis,
     run_sensitivity_analysis,
-    run_vulnerability_analysis,
 )
 from core_analyst.utils.config import load_config
 from core_analyst.utils.visualization import create_debug_visualization
@@ -203,58 +197,6 @@ class CoreAnalystAnalysisService:
             )
         return self._persist(run_id, f"hazard_{hazard_type}_{scenario}", raw)
 
-    async def run_exposure(
-        self,
-        *,
-        hazard_run_id: str,
-        exposure_types: list[str] | None = None,
-        hazard_threshold: int = 2,
-    ) -> AnalysisRunSummary:
-        hazard = self._load(hazard_run_id)
-        run_id = self._new_run_id()
-        sources = await asyncio.to_thread(self._exposure_sources)
-        config = load_config(self._config_dir / "exposure_analysis_config.yaml")
-        raw = await asyncio.to_thread(
-            run_exposure_analysis,
-            hazard_result=hazard,
-            exposure_sources=sources,
-            exposure_types=exposure_types,
-            area="glasgow",
-            output_dir=self._output_dir / "exposure" / run_id,
-            hazard_threshold=hazard_threshold,
-            config=config,
-        )
-        return self._persist(run_id, "exposure", raw)
-
-    async def combine_hazards(
-        self,
-        *,
-        pluvial_run_id: str,
-        fluvial_run_id: str,
-        coastal_run_id: str,
-        scenario: str,
-        exposure_threshold: int = 2,
-    ) -> AnalysisRunSummary:
-        run_id = self._new_run_id()
-        runs = {
-            "pluvial": self._load(pluvial_run_id),
-            "fluvial": self._load(fluvial_run_id),
-            "coastal": self._load(coastal_run_id),
-        }
-        for hazard_type, result in runs.items():
-            if result.get("hazard_type") != hazard_type:
-                raise ValueError(f"{hazard_type}_run_id references the wrong hazard type")
-            if result.get("status") not in {"success", "success_with_warnings", "partial"}:
-                raise ValueError(f"{hazard_type} run is not usable")
-        raw = await asyncio.to_thread(
-            combine_hazard_maps,
-            runs,
-            self._output_dir / "combined" / run_id,
-            scenario=scenario,
-            exposure_threshold=exposure_threshold,
-        )
-        return self._persist(run_id, f"hazard_combined_{scenario}", raw)
-
     async def coastal_dynamic_evidence(
         self,
         *,
@@ -271,27 +213,6 @@ class CoreAnalystAnalysisService:
             ),
         )
         return self._persist(run_id, "coastal_dynamic_evidence", raw)
-
-    async def run_vulnerability(
-        self,
-        *,
-        scenario: str = "current",
-        dimensions: list[str] | None = None,
-    ) -> AnalysisRunSummary:
-        run_id = self._new_run_id()
-        geography, sources = await asyncio.to_thread(self._vulnerability_sources)
-        config = load_config(self._config_dir / "vulnerability_analysis_config.yaml")
-        raw = await asyncio.to_thread(
-            run_vulnerability_analysis,
-            area="glasgow",
-            geography_source=geography,
-            vulnerability_sources=sources,
-            vulnerability_dimensions=dimensions,
-            output_dir=self._output_dir / "vulnerability" / run_id,
-            scenario=scenario,
-            config=config,
-        )
-        return self._persist(run_id, f"vulnerability_{scenario}", raw)
 
     async def run_priority(
         self,
@@ -1314,35 +1235,6 @@ class CoreAnalystAnalysisService:
             area,
         )
         return self._persist(run_id, f"hazard_{hazard_type}_custom", raw)
-
-    def _prepared_payload(self) -> dict[str, Any]:
-        manifest = (
-            self._input_dir
-            / "processed"
-            / "real_exposure_vulnerability_inputs_manifest.json"
-        )
-        if not manifest.is_file():
-            return {}
-        return json.loads(manifest.read_text(encoding="utf-8")).get("prepared", {})
-
-    def _exposure_sources(self) -> dict[str, Any]:
-        sources = build_real_exposure_sources(self._prepared_payload())
-        records = {record["dataset"]: record for record in build_core_data_registry(self._input_dir)}
-        for key in ("buildings", "critical_infrastructure"):
-            record = records.get(key, {})
-            if record.get("local_path"):
-                sources[key] = record["local_path"]
-        return sources
-
-    def _vulnerability_sources(self) -> tuple[str | None, dict[str, Any]]:
-        geography, sources = build_real_vulnerability_sources(self._prepared_payload())
-        records = {record["dataset"]: record for record in build_core_data_registry(self._input_dir)}
-        for key in ("socioeconomic", "critical_services"):
-            record = records.get(key, {})
-            path = str(record.get("local_path", ""))
-            if record.get("status") == "available" and Path(path).suffix.lower() in {".geojson", ".json"}:
-                sources[key] = record["local_path"]
-        return geography, sources
 
     def _persist(
         self,

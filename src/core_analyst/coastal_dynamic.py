@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 from rasterio.coords import BoundingBox
 from rasterio.warp import transform as transform_coords
 
-from core_analyst.study_area import StudyAreaBounds, load_glasgow_1km_buffer_bounds, read_shapefile_bounds
+from core_analyst.study_area import StudyAreaBounds, load_glasgow_1km_buffer_bounds
 
 
 EA_FLOOD_MONITORING_BASE = "https://environment.data.gov.uk/flood-monitoring"
