@@ -1,0 +1,10 @@
+# Git for Windows enables core.autocrlf by default, which rewrites LF to CRLF on
+# checkout. This repository verifies its inputs by SHA-256, so such a rewrite
+# makes a checked-out file disagree with data/glasgow-5m-sources.json and aborts
+# `hydromind data rebuild` before anything is downloaded. Normalise text to LF in
+# the repository and check it out unchanged on every platform.
+* text=auto eol=lf
+
+# Byte-exact and hash-locked in data/glasgow-5m-sources.json: never eligible for
+# end-of-line conversion in either direction.
+data/glasgow-dtm-edge-patch.csv -text

@@ -9,15 +9,19 @@ calculations remain deterministic and provider-independent.
 
 ## Quick start
 
-Requirements: Python 3.10+, Docker, and about 10 GB of free space for the full
-Glasgow dataset.
+Requirements: Python 3.12+ and about 12 GB of free space for the full Glasgow
+dataset. Docker is optional; see [Run the application](#run-the-application).
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev]" -c constraints.txt
 cp .env.example .env              # Windows: copy .env.example .env
 ```
+
+`constraints.txt` pins the versions this project was verified with. Installing
+without it resolves versions nobody has tested. Python 3.12 is the floor because
+the pinned NumPy and SciPy require it.
 
 For a hosted OpenAI model, edit `.env`:
 

@@ -93,6 +93,27 @@ def load_source_lock() -> dict:
     return json.loads(SOURCE_LOCK_PATH.read_text(encoding="utf-8"))
 
 
+def _edge_patch_error(patch: dict) -> str | None:
+    """Explain why the versioned DTM edge patch disagrees with the source lock."""
+
+    raw = DTM_EDGE_PATCH_PATH.read_bytes()
+    if hashlib.sha256(raw).hexdigest() == patch["sha256"]:
+        return None
+    if b"\r\n" in raw and hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest() == patch["sha256"]:
+        return (
+            f"{DTM_EDGE_PATCH_PATH} was checked out with CRLF line endings, so its "
+            "SHA-256 no longer matches the source lock. Git for Windows enables "
+            "core.autocrlf by default; this repository ships a .gitattributes that "
+            "prevents the rewrite. Restore the file with: "
+            "git config core.autocrlf false && git rm --cached -r . && git reset --hard"
+        )
+    return (
+        f"{DTM_EDGE_PATCH_PATH} does not match the source lock "
+        f"(expected sha256 {patch['sha256']}, found {hashlib.sha256(raw).hexdigest()}). "
+        "Restore it from Git before rebuilding."
+    )
+
+
 def preflight_exact_data(
     lcm2019: str | Path | None,
     *,
@@ -102,8 +123,9 @@ def preflight_exact_data(
     item = lock["sources"]["land_cover"]
     errors = []
     patch = lock["legacy_edge_patch"]
-    if _hash(DTM_EDGE_PATCH_PATH, "sha256") != patch["sha256"]:
-        errors.append("The versioned Glasgow DTM edge patch does not match the source lock.")
+    patch_error = _edge_patch_error(patch)
+    if patch_error:
+        errors.append(patch_error)
     if not accept_licences:
         errors.append("Pass --accept-licences after reading the UKCEH LCM and NRFA terms.")
     lcm_path = _find_lcm(Path(lcm2019)) if lcm2019 else None

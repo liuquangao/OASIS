@@ -5,7 +5,9 @@ import hashlib
 
 from hydromind.cli import build_parser
 from hydromind.reproducible_data import (
+    DTM_EDGE_PATCH_PATH,
     STUDY_AREA_PATH,
+    _edge_patch_error,
     load_source_lock,
     preflight_exact_data,
 )
@@ -30,6 +32,36 @@ def test_legacy_edge_patch_matches_the_source_lock() -> None:
     path = STUDY_AREA_PATH.parent / "glasgow-dtm-edge-patch.csv"
     assert sum(1 for _ in path.open(encoding="utf-8")) - 1 == 3_924
     assert hashlib.sha256(path.read_bytes()).hexdigest() == lock["legacy_edge_patch"]["sha256"]
+
+
+def test_edge_patch_is_intact_on_this_checkout() -> None:
+    assert _edge_patch_error(load_source_lock()["legacy_edge_patch"]) is None
+
+
+def test_crlf_checkout_is_reported_as_a_line_ending_problem(monkeypatch, tmp_path) -> None:
+    """Git for Windows rewrites LF to CRLF by default, which breaks the hash lock."""
+
+    patch = load_source_lock()["legacy_edge_patch"]
+    crlf = tmp_path / "glasgow-dtm-edge-patch.csv"
+    crlf.write_bytes(DTM_EDGE_PATCH_PATH.read_bytes().replace(b"\n", b"\r\n"))
+    monkeypatch.setattr("hydromind.reproducible_data.DTM_EDGE_PATCH_PATH", crlf)
+
+    error = _edge_patch_error(patch)
+    assert error is not None
+    assert "CRLF" in error
+    assert "core.autocrlf" in error
+
+
+def test_a_corrupt_edge_patch_reports_both_hashes(monkeypatch, tmp_path) -> None:
+    patch = load_source_lock()["legacy_edge_patch"]
+    corrupt = tmp_path / "glasgow-dtm-edge-patch.csv"
+    corrupt.write_bytes(b"x,y,value\n1,2,3\n")
+    monkeypatch.setattr("hydromind.reproducible_data.DTM_EDGE_PATCH_PATH", corrupt)
+
+    error = _edge_patch_error(patch)
+    assert error is not None
+    assert "CRLF" not in error
+    assert patch["sha256"] in error
 
 
 def test_preflight_stops_before_large_downloads_when_lcm_is_missing(tmp_path) -> None:
