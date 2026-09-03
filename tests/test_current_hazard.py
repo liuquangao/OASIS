@@ -6,10 +6,10 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
-from oasis.domain.hazard import interpret_hazard_class
-from oasis.integrations.current_hazard import CoreAnalystCurrentHazard
-from oasis.runtime import build_analysis_service
-from oasis.settings import Settings
+from hydromind.domain.hazard import interpret_hazard_class
+from hydromind.integrations.current_hazard import CoreAnalystCurrentHazard
+from hydromind.runtime import build_analysis_service
+from hydromind.settings import Settings
 
 
 def test_core_analyst_class_meanings_are_used_directly() -> None:

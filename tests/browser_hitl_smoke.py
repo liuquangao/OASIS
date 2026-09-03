@@ -248,7 +248,7 @@ def main() -> None:
         page.locator("#assessment-confirm").click()
         page.get_by_text("Re-ranked without weather API calls.").wait_for()
         assert page.locator("#analysis-layer-list .action-button").count() == 1
-        page.screenshot(path="/tmp/oasis-hitl-browser-smoke.png", full_page=True)
+        page.screenshot(path="/tmp/hydromind-hitl-browser-smoke.png", full_page=True)
         assert errors == []
         browser.close()
 

@@ -1,4 +1,4 @@
-# HydroMind (OASIS)
+# HydroMind
 
 HydroMind is a Glasgow flood-analysis WebGIS. It combines a Leaflet map, a
 tool-using PydanticAI agent, live observations, and deterministic raster
@@ -22,12 +22,12 @@ cp .env.example .env              # Windows: copy .env.example .env
 For a hosted OpenAI model, edit `.env`:
 
 ```dotenv
-OASIS_MODEL=openai:gpt-5-mini
+HYDROMIND_MODEL=openai:gpt-5-mini
 OPENAI_API_KEY=your-key
 ```
 
-Offline tests can use `OASIS_MODEL=test`. Local inference is also supported
-through vLLM on port `8001`; configure `OASIS_MODEL_PROVIDER=vllm`,
+Offline tests can use `HYDROMIND_MODEL=test`. Local inference is also supported
+through vLLM on port `8001`; configure `HYDROMIND_MODEL_PROVIDER=vllm`,
 `OPENAI_BASE_URL`, and a non-empty placeholder `OPENAI_API_KEY`. The tested
 Qwen3.8-27B setup requires the `qwen3` reasoning parser and `qwen3_coder`
 tool-call parser.
@@ -39,8 +39,8 @@ Download `gb2019lcm25m.tif` yourself from the
 and accept its licence. This file must not be redistributed or committed.
 
 ```bash
-oasis data rebuild --lcm2019 /path/to/gb2019lcm25m.tif --accept-licences
-oasis data verify
+hydromind data rebuild --lcm2019 /path/to/gb2019lcm25m.tif --accept-licences
+hydromind data verify
 ```
 
 The build downloads and prepares the complete Glasgow EPSG:27700 5 m inputs.
@@ -58,7 +58,7 @@ docker compose -f webgis/docker-compose.yml up -d postgis geoserver
 Start the Agent API:
 
 ```bash
-python -m uvicorn oasis.api:app --host 127.0.0.1 --port 8000
+python -m uvicorn hydromind.api:app --host 127.0.0.1 --port 8000
 ```
 
 Serve the frontend in another terminal:
@@ -77,23 +77,23 @@ For a watermark-free CARTO basemap, copy
 ## Useful commands
 
 ```bash
-oasis doctor
-oasis agent "Assess the available flood evidence for Glasgow"
-oasis all-hazards --forecast-horizon-hours 24 --no-publish
-oasis data prepare-risk
-oasis priority-assessment --scenario future --forecast-horizon-hours 24 --no-publish
+hydromind doctor
+hydromind agent "Assess the available flood evidence for Glasgow"
+hydromind all-hazards --forecast-horizon-hours 24 --no-publish
+hydromind data prepare-risk
+hydromind priority-assessment --scenario future --forecast-horizon-hours 24 --no-publish
 ```
 
 Optional runtime integrations are configured in `.env`:
 
 - `METOFFICE_SITE_API_KEY` for 24-hour forecast analysis
 - `ADMIRALTY_API_KEY` for live tidal predictions
-- CEDA credentials or `OASIS_HISTORICAL_UKV_PATH` for the October 2023 study
+- CEDA credentials or `HYDROMIND_HISTORICAL_UKV_PATH` for the October 2023 study
 
 ## Project layout
 
 ```text
-src/oasis/          Agent, API, toolsets, models, and integrations
+src/hydromind/          Agent, API, toolsets, models, and integrations
 src/core_analyst/   Deterministic hazard and exposure workflows
 webgis/frontend/    HydroMind Leaflet interface
 webgis/             GeoServer, PostGIS, and WebGIS configuration

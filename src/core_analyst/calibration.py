@@ -20,7 +20,7 @@ from core_analyst.tools.factor_analyzers import (
     SlopeRiskAnalyzer,
 )
 from core_analyst.utils.config import load_config
-from core_analyst.workflows.oasis_real_data import build_oasis_input_sources, gdb_uri
+from core_analyst.workflows.hydromind_real_data import build_hydromind_input_sources, gdb_uri
 
 
 FACTOR_NAMES = ["elevation", "slope", "flow_accumulation", "imperviousness", "rainfall"]
@@ -55,7 +55,7 @@ def load_sepa_reference_labels(
     layer_name: str = "SEPA_Coastal_and_River_Medium_Flood_5m_res",
 ) -> np.ndarray:
     input_dir = Path(input_dir)
-    gdb_path = input_dir / "OASIS_raster.gdb" / "OASIS_raster.gdb"
+    gdb_path = input_dir / "HYDROMIND_raster.gdb" / "HYDROMIND_raster.gdb"
     if gdb_path.exists():
         source_path = gdb_uri(gdb_path, layer_name)
     else:
@@ -64,7 +64,7 @@ def load_sepa_reference_labels(
             "SEPA_Coastal_and_River_Medium_Flood_5m_res": "SEPA_Coastal_and_River_Me.tif",
             "SEPA_Coastal_and_River_Low_Flood_5m_res": "SEPA_Coastal_and_River_Lo.tif",
         }.get(layer_name, "SEPA_Coastal_and_River_Me.tif")
-        source_path = input_dir / "OASIS_Rasters" / "OASIS_Rasters" / tif_name
+        source_path = input_dir / "HYDROMIND_Rasters" / "HYDROMIND_Rasters" / tif_name
 
     grid = AlignedRasterSource(
         "sepa_reference",
@@ -191,14 +191,14 @@ def auc_score(y_true: np.ndarray, scores: np.ndarray) -> float:
 def compare_expert_and_calibrated(
     input_dir: str | Path = "Input",
     output_dir: str | Path = "outputs/sepa_weight_comparison",
-    expert_config_path: str | Path = "config/oasis_static_config.yaml",
+    expert_config_path: str | Path = "config/hydromind_static_config.yaml",
     reference_layer: str = "SEPA_Coastal_and_River_Medium_Flood_5m_res",
     hybrid_weights: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     expert_config = load_config(expert_config_path)
-    sources = build_oasis_input_sources(input_dir, rainfall_source="mock")
+    sources = build_hydromind_input_sources(input_dir, rainfall_source="mock")
     factors, reference_grid = compute_factor_grids(sources)
     reference_values = load_sepa_reference_labels(input_dir, reference_grid, layer_name=reference_layer)
     valid_mask = np.isfinite(reference_grid.data)

@@ -5,17 +5,17 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RunUsage
 from pydantic import SecretStr
 
-from oasis.agent import spatial_agent
-from oasis.api import app
-from oasis.deps import MapAgentDeps
-from oasis.models.map_conversation import (
+from hydromind.agent import spatial_agent
+from hydromind.api import app
+from hydromind.deps import MapAgentDeps
+from hydromind.models.map_conversation import (
     MapSessionState,
     RememberedLocation,
     RiskReport,
 )
-from oasis.runtime import _select_model, run_spatial_agent
-from oasis.settings import Settings
-from oasis.toolsets.rainfall import get_latest_rainfall_near_location
+from hydromind.runtime import _select_model, run_spatial_agent
+from hydromind.settings import Settings
+from hydromind.toolsets.rainfall import get_latest_rainfall_near_location
 
 
 def test_spatial_agent_exists() -> None:
@@ -128,7 +128,7 @@ async def test_spatial_agent_persists_structured_risk_report() -> None:
 
 
 def test_api_requires_a_live_semantic_model(monkeypatch) -> None:
-    monkeypatch.setenv("OASIS_MODEL", "test")
+    monkeypatch.setenv("HYDROMIND_MODEL", "test")
     response = TestClient(app).post(
         "/agent/turn",
         json={
@@ -166,10 +166,10 @@ def test_api_identifies_an_unavailable_hazard_service(monkeypatch) -> None:
         )
         raise httpx.ConnectError("GeoServer is unavailable", request=request)
 
-    monkeypatch.setenv("OASIS_MODEL", "mimo-v2.5-pro")
-    monkeypatch.setenv("OASIS_MODEL_PROVIDER", "mimo")
+    monkeypatch.setenv("HYDROMIND_MODEL", "mimo-v2.5-pro")
+    monkeypatch.setenv("HYDROMIND_MODEL_PROVIDER", "mimo")
     monkeypatch.setenv("MIMO_API_KEY", "test-key")
-    monkeypatch.setattr("oasis.api.run_spatial_agent", fail_on_hazard)
+    monkeypatch.setattr("hydromind.api.run_spatial_agent", fail_on_hazard)
     response = TestClient(app).post(
         "/agent/turn",
         json={"prompt": "Flood risk at G2 8JB"},

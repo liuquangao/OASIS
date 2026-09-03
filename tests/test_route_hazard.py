@@ -4,7 +4,7 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
-from oasis.integrations.raster_route_hazard import RasterRouteHazardAnalyzer
+from hydromind.integrations.raster_route_hazard import RasterRouteHazardAnalyzer
 
 
 async def test_route_analysis_uses_core_analyst_class_order(tmp_path: Path) -> None:

@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "oasis-geoagent"
+name = "hydromind"
 version = "0.1.0"
 description = "GeoAI agent for live observations, WebGIS interaction, and deterministic flood-risk analysis."
 readme = "README.md"
@@ -34,10 +34,10 @@ dev = [
 ]
 
 [project.scripts]
-oasis = "oasis.cli:main"
+hydromind = "hydromind.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/oasis", "src/core_analyst"]
+packages = ["src/hydromind", "src/core_analyst"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

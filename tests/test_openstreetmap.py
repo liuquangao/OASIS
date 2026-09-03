@@ -1,6 +1,6 @@
 import httpx
 
-from oasis.integrations.openstreetmap import OpenStreetMapClient
+from hydromind.integrations.openstreetmap import OpenStreetMapClient
 
 
 async def test_geocode_returns_typed_place() -> None:

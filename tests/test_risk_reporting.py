@@ -7,9 +7,9 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
-from oasis.models.analysis import AnalysisRunSummary, PriorityWeights
-from oasis.models.assessment import AssessmentPreferences
-from oasis.risk_reporting import build_priority_risk_report
+from hydromind.models.analysis import AnalysisRunSummary, PriorityWeights
+from hydromind.models.assessment import AssessmentPreferences
+from hydromind.risk_reporting import build_priority_risk_report
 
 
 def test_priority_report_explains_inputs_and_weighted_contributions(tmp_path) -> None:

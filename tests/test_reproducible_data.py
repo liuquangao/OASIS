@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import hashlib
 
-from oasis.cli import build_parser
-from oasis.reproducible_data import (
+from hydromind.cli import build_parser
+from hydromind.reproducible_data import (
     STUDY_AREA_PATH,
     load_source_lock,
     preflight_exact_data,

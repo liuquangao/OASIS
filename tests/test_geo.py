@@ -1,4 +1,4 @@
-from oasis.domain.geo import haversine_km
+from hydromind.domain.geo import haversine_km
 
 
 def test_haversine_zero_distance() -> None:

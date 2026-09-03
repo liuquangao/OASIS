@@ -1,6 +1,6 @@
-# Glasgow Flood Risk WebGIS MVP
+# HydroMind WebGIS
 
-Minimum viable WebGIS platform for static Glasgow flood risk layers. The stack is Leaflet, FastAPI, GeoServer, PostgreSQL/PostGIS, and Docker Compose.
+HydroMind's WebGIS platform for Glasgow flood-risk layers. The stack is Leaflet, FastAPI, GeoServer, PostgreSQL/PostGIS, and Docker Compose.
 
 The generated project folder is named `glagow-flood-webgis` to match the requested structure. If you prefer the corrected spelling, rename it to `glasgow-flood-webgis`.
 

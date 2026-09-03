@@ -37,24 +37,24 @@ class DataAvailabilityRecord:
 
 def build_core_data_registry(input_dir: str | Path = "Input") -> list[dict[str, Any]]:
     input_dir = Path(input_dir)
-    gdb_path = input_dir / "OASIS_raster.gdb" / "OASIS_raster.gdb"
-    tif_dir = input_dir / "OASIS_Rasters" / "OASIS_Rasters"
+    gdb_path = input_dir / "HYDROMIND_raster.gdb" / "HYDROMIND_raster.gdb"
+    tif_dir = input_dir / "HYDROMIND_Rasters" / "HYDROMIND_Rasters"
     csv_dir = input_dir / "CSV-20260825T012052Z-1-001" / "CSV"
-    polygons_dir = input_dir / "OASIS_Polygon" / "OASIS_Polygon"
+    polygons_dir = input_dir / "HYDROMIND_Polygon" / "HYDROMIND_Polygon"
 
     gdb_layers = _gdb_layers(gdb_path)
     records: list[DataAvailabilityRecord] = []
 
     static_layers = [
-        ("DEM", "DTM_5m_res", "pluvial,fluvial,coastal", "all", "static", "observed", "Local OASIS raster geodatabase", "P0", "Shared terrain condition."),
-        ("Slope", "Slope_degrees_DTM_5m", "pluvial", "all", "static", "observed", "Local OASIS raster geodatabase", "P0", "Static terrain factor."),
-        ("FlowAcc_DTM_5m", "FlowAcc_DTM_5m", "pluvial", "all", "static", "observed", "Local OASIS raster geodatabase", "P0", "Primary flow accumulation layer; DEM-derived proxy is retained only as fallback."),
-        ("Land Cover", "UKCEH_Landcover_5m_res", "pluvial", "all", "static", "observed", "UKCEH / local OASIS raster geodatabase", "P0", "Runoff surface context."),
+        ("DEM", "DTM_5m_res", "pluvial,fluvial,coastal", "all", "static", "observed", "Local HydroMind raster geodatabase", "P0", "Shared terrain condition."),
+        ("Slope", "Slope_degrees_DTM_5m", "pluvial", "all", "static", "observed", "Local HydroMind raster geodatabase", "P0", "Static terrain factor."),
+        ("FlowAcc_DTM_5m", "FlowAcc_DTM_5m", "pluvial", "all", "static", "observed", "Local HydroMind raster geodatabase", "P0", "Primary flow accumulation layer; DEM-derived proxy is retained only as fallback."),
+        ("Land Cover", "UKCEH_Landcover_5m_res", "pluvial", "all", "static", "observed", "UKCEH / local HydroMind raster geodatabase", "P0", "Runoff surface context."),
         ("Imperviousness", "OS_Built_Up_Areas_5m_res", "pluvial", "all", "static", "proxy", "Derived from OS built-up, OS greenspace, and UKCEH land-cover rasters", "P0", "Runoff susceptibility proxy; not measured impervious percentage."),
-        ("River Network", "OS_Rivers_5m_res", "fluvial", "all", "static", "observed", "OS Rivers / local OASIS raster geodatabase", "P0", "River-network presence factor."),
+        ("River Network", "OS_Rivers_5m_res", "fluvial", "all", "static", "observed", "OS Rivers / local HydroMind raster geodatabase", "P0", "River-network presence factor."),
         ("SEPA River Flood Maps", "SEPA_River_High_Flood_5m_res", "fluvial", "all", "static", "observed", "SEPA flood hazard maps", "P0", "High/medium/low river flood reference maps are stored in the geodatabase."),
         ("SEPA Coastal Flood Maps", "SEPA_Coastal_High_Flood_5m_res", "coastal", "all", "static", "observed", "SEPA flood hazard maps", "P0", "High/medium/low coastal flood reference maps are stored in the geodatabase."),
-        ("Glasgow City 1km Buffer", "Glasgow_City_1km_buffer.shp", None, None, "static", "observed", "Local OASIS polygon input", "P0", "Study-area boundary for Glasgow station discovery."),
+        ("Glasgow City 1km Buffer", "Glasgow_City_1km_buffer.shp", None, None, "static", "observed", "Local HydroMind polygon input", "P0", "Study-area boundary for Glasgow station discovery."),
     ]
     for dataset, layer, flood_type, temporal_state, evidence_type, dtype, source, priority, role in static_layers:
         tif_names = {

@@ -5,8 +5,8 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
-from oasis.integrations.osrm import OsrmRoutingClient
-from oasis.integrations.raster_route_hazard import RasterRouteHazardAnalyzer
+from hydromind.integrations.osrm import OsrmRoutingClient
+from hydromind.integrations.raster_route_hazard import RasterRouteHazardAnalyzer
 
 
 async def test_osrm_returns_candidate_route_geometry() -> None:

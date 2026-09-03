@@ -111,10 +111,10 @@ Run a rainfall scenario:
 python demo.py --query "What would the flood hazard look like if rainfall increases by 20%?"
 ```
 
-Run with the current `OASIS_Rasters` real raster folder:
+Run with the current `HYDROMIND_Rasters` real raster folder:
 
 ```bash
-python demo.py --use-real-data --real-data-dir OASIS_Rasters --output-dir outputs/oasis_real
+python demo.py --use-real-data --real-data-dir HYDROMIND_Rasters --output-dir outputs/hydromind_real
 ```
 
 This uses `DTM_5m_res.tif` as the reference grid, aligns the built-up and greenspace rasters to that grid at read time, derives a temporary slope layer from the DTM, and derives a temporary topographic flow proxy because a formal Component 1 `flow_accumulation.tif` is not present yet. The output extent is the DTM extent:
@@ -130,18 +130,18 @@ Approximate size: 22.01 km x 18.61 km
 
 The real-data mode is useful for workflow integration, but the slope and flow layers should be replaced by Component 1 products before scientific interpretation.
 
-Current real inputs in `OASIS_Rasters` are not perfectly identical in bounds and shape. They share British National Grid and 5m resolution, so the real-data workflow aligns secondary rasters to the DTM reference grid while reading. For production, Component 1 should still export a clean canonical stack under `data/static/` with identical grid metadata.
+Current real inputs in `HYDROMIND_Rasters` are not perfectly identical in bounds and shape. They share British National Grid and 5m resolution, so the real-data workflow aligns secondary rasters to the DTM reference grid while reading. For production, Component 1 should still export a clean canonical stack under `data/static/` with identical grid metadata.
 
 Run with updated `Input` data and live SEPA rainfall station observations:
 
 ```bash
-python demo.py --use-input-data --input-dir Input --config config/oasis_realtime_config.yaml --rainfall-source sepa --sepa-stations 15198 --output-dir outputs/input_sepa
+python demo.py --use-input-data --input-dir Input --config config/hydromind_realtime_config.yaml --rainfall-source sepa --sepa-stations 15198 --output-dir outputs/input_sepa
 ```
 
 For one SEPA station, the rainfall field is spatially uniform across the valid DTM mask. For multiple stations, pass a comma-separated list and the prototype uses inverse-distance weighting:
 
 ```bash
-python demo.py --use-input-data --input-dir Input --config config/oasis_realtime_config.yaml --rainfall-source sepa --sepa-stations 15198,XXXXX,YYYYY --output-dir outputs/input_sepa
+python demo.py --use-input-data --input-dir Input --config config/hydromind_realtime_config.yaml --rainfall-source sepa --sepa-stations 15198,XXXXX,YYYYY --output-dir outputs/input_sepa
 ```
 
 SEPA Rainfall data is treated as three separate data roles:
@@ -166,7 +166,7 @@ SEPA hourly rainfall history
 Hourly history retrieval is optional in the current workflow:
 
 ```bash
-python demo.py --use-input-data --input-dir Input --config config/oasis_realtime_config.yaml --rainfall-source sepa --sepa-stations 15198 --sepa-include-hourly-history --sepa-history-hours 6 --output-dir outputs/input_sepa_history
+python demo.py --use-input-data --input-dir Input --config config/hydromind_realtime_config.yaml --rainfall-source sepa --sepa-stations 15198 --sepa-include-hourly-history --sepa-history-hours 6 --output-dir outputs/input_sepa_history
 ```
 
 Met Office Weather DataHub should be added as a separate authenticated connector because it requires registration/subscription and API access configuration. Do not hard-code credentials in the Core Analyst.
@@ -198,10 +198,10 @@ This returns a point forecast for Glasgow city centre and attempts to extract pr
 Run the Core Analyst with Met Office SiteSpecificForecast rainfall from `env.env`:
 
 ```powershell
-python demo.py --use-input-data --input-dir Input --config config/oasis_realtime_config.yaml --rainfall-source metoffice-site --metoffice-horizon-hours 6 --output-dir outputs/input_metoffice_site
+python demo.py --use-input-data --input-dir Input --config config/hydromind_realtime_config.yaml --rainfall-source metoffice-site --metoffice-horizon-hours 6 --output-dir outputs/input_metoffice_site
 ```
 
-The workflow samples nine points across the DTM study area, retrieves hourly site-specific forecasts, extracts `totalPrecipAmount`, takes the maximum hourly amount within the selected horizon, interpolates the point values to the DTM grid, and converts rainfall to risk using `rainfall_thresholds` in `config/oasis_realtime_config.yaml`.
+The workflow samples nine points across the DTM study area, retrieves hourly site-specific forecasts, extracts `totalPrecipAmount`, takes the maximum hourly amount within the selected horizon, interpolates the point values to the DTM grid, and converts rainfall to risk using `rainfall_thresholds` in `config/hydromind_realtime_config.yaml`.
 
 Run all current/future MVP hazard workflows:
 

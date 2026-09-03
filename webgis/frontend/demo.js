@@ -5,7 +5,7 @@ const HAZARD_BOUNDS = [
 ];
 const HAZARD_WMS_URL = "http://127.0.0.1:8080/geoserver/glasgow_flood/wms";
 const AGENT_API_URL = "http://127.0.0.1:8000";
-const CARTO_BASEMAP_KEY = window.OASIS_CONFIG?.cartoBasemapKey || "";
+const CARTO_BASEMAP_KEY = window.HYDROMIND_CONFIG?.cartoBasemapKey || "";
 
 const map = L.map("demo-map", { center: GLASGOW, zoom: 13, zoomControl: false });
 
@@ -26,7 +26,7 @@ const hazardOverlay = L.tileLayer.wms(HAZARD_WMS_URL, {
   transparent: true,
   version: "1.1.1",
   opacity: 0.68,
-  attribution: "OASIS latest calculated 5 m hazard raster"
+  attribution: "HydroMind latest calculated 5 m hazard raster"
 });
 
 const locationSelection = L.layerGroup().addTo(map);
@@ -280,7 +280,7 @@ async function rerankAssessment() {
     };
     sessionState.risk_report.evidence = [
       ...(sessionState.risk_report.evidence || []).filter((item) => item.label !== "Re-ranking run"),
-      { label: "Re-ranking run", value: payload.run.run_id, source: "OASIS deterministic priority rerank", observed_at: null, source_url: null }
+      { label: "Re-ranking run", value: payload.run.run_id, source: "HydroMind deterministic priority rerank", observed_at: null, source_url: null }
     ];
     renderRiskReport(sessionState.risk_report);
   }
@@ -819,7 +819,7 @@ function renderSetupStatus(status) {
       body.appendChild(setupItem(
         "Complete Glasgow data",
         "missing",
-        "Set OASIS_LCM2019_PATH to your licensed gb2019lcm25m.tif and OASIS_ACCEPT_DATA_LICENCES=true, then restart the API. Anonymous official sources will be downloaded and processed automatically."
+        "Set HYDROMIND_LCM2019_PATH to your licensed gb2019lcm25m.tif and HYDROMIND_ACCEPT_DATA_LICENCES=true, then restart the API. Anonymous official sources will be downloaded and processed automatically."
       ));
     }
   }
@@ -853,9 +853,9 @@ function renderSetupConnectionError() {
   document.getElementById("setup-status-summary").textContent = "Start the API at 127.0.0.1:8000";
   const body = document.getElementById("setup-status-body");
   body.replaceChildren(setupItem(
-    "OASIS Agent API",
+    "HydroMind Agent API",
     "missing",
-    "Run the OASIS API, then select Check again."
+    "Run the HydroMind API, then select Check again."
   ));
   const button = textElement("button", "setup-recheck", "Check again");
   button.type = "button";

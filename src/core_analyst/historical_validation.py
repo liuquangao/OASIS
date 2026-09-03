@@ -25,9 +25,9 @@ from core_analyst.analysts.data_zone_assessment import (
 from core_analyst.analysts.pluvial_prediction import PluvialPredictionAnalyst
 from core_analyst.data_sources import DataSource, RasterGrid, RealTimeAPISource, write_raster
 from core_analyst.real_data_inputs import prepare_real_exposure_vulnerability_inputs
-from core_analyst.workflows.oasis_real_data import (
+from core_analyst.workflows.hydromind_real_data import (
     build_historical_hydrological_sources,
-    build_oasis_input_sources,
+    build_hydromind_input_sources,
 )
 from core_analyst.utils.config import load_config
 
@@ -118,7 +118,7 @@ def run_historical_flood_validation(
             f"than requested issue time {issue_time.isoformat()}"
         )
 
-    static_sources = build_oasis_input_sources(input_dir, rainfall_source="mock")
+    static_sources = build_hydromind_input_sources(input_dir, rainfall_source="mock")
     reference = static_sources["dem"].get_data()
     forecast_grid, forecast_metadata = _forecast_rainfall_grid(
         source_path,
@@ -318,7 +318,7 @@ def _resolve_forecast(
     if not token:
         raise ValueError(
             "Historical validation needs CEDA_ACCESS_TOKEN, CEDA_USERNAME/CEDA_PASSWORD, "
-            "or OASIS_HISTORICAL_UKV_PATH."
+            "or HYDROMIND_HISTORICAL_UKV_PATH."
         )
     stamp = issue_time.strftime("%Y%m%d%H%M")
     filename = f"{stamp}_u1096_ng_umqv_Wholesale4.grib"
@@ -354,7 +354,7 @@ def _resolve_forecast(
             break
     raise ValueError(
         f"CEDA UKV download failed with HTTP {recovery[-1]['status_code']}; "
-        "check archive permission or provide OASIS_HISTORICAL_UKV_PATH."
+        "check archive permission or provide HYDROMIND_HISTORICAL_UKV_PATH."
     )
 
 
@@ -433,7 +433,7 @@ def _forecast_rainfall_grid(
                 raise ValueError(
                     "The configured UKV GRIB does not contain precipitation bands within the "
                     "requested horizon; provide an appropriate UKV precipitation GRIB through "
-                    "OASIS_HISTORICAL_UKV_PATH."
+                    "HYDROMIND_HISTORICAL_UKV_PATH."
                 )
             parameter = sorted(
                 groups,

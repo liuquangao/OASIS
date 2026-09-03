@@ -21,10 +21,10 @@ from core_analyst.tools.agent_tools import (
     run_priority_analysis,
 )
 from core_analyst.workflows.multi_hazard import combine_hazard_maps
-from oasis.agent import spatial_agent
-from oasis.integrations.core_analysis import CoreAnalystAnalysisService
-from oasis.models.analysis import ExtensionFactor, HazardExtensionSpec, PriorityScenarioInput, PriorityUnitInput, PriorityWeights
-from oasis.models.current_hazard import CurrentHazardSnapshot
+from hydromind.agent import spatial_agent
+from hydromind.integrations.core_analysis import CoreAnalystAnalysisService
+from hydromind.models.analysis import ExtensionFactor, HazardExtensionSpec, PriorityScenarioInput, PriorityUnitInput, PriorityWeights
+from hydromind.models.current_hazard import CurrentHazardSnapshot
 
 
 class FakeCurrentHazard:
@@ -168,7 +168,7 @@ async def test_all_hazards_reports_unavailable_inputs_without_crashing(
         }
 
     monkeypatch.setattr(
-        "oasis.integrations.core_analysis.run_hazard_scenarios",
+        "hydromind.integrations.core_analysis.run_hazard_scenarios",
         unavailable_hazard_scenarios,
     )
 

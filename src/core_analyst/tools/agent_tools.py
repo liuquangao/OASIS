@@ -17,8 +17,8 @@ from core_analyst.coastal_dynamic import CoastalDynamicConfig, build_coastal_dyn
 from core_analyst.data_sources import DataSource, MockRainfallAPISource, SEPAWaterLevelAPISource
 from core_analyst.study_area import load_glasgow_1km_buffer_bounds
 from core_analyst.utils.config import load_config
-from core_analyst.workflows.oasis_real_data import (
-    build_oasis_input_sources,
+from core_analyst.workflows.hydromind_real_data import (
+    build_hydromind_input_sources,
     build_reference_flood_sources,
 )
 
@@ -389,13 +389,13 @@ def _run_pluvial_hazard(
     rainfall_forecast_source: DataSource | None = None,
 ) -> dict[str, Any]:
     config = load_config(_config_path("pluvial_prediction_config.yaml"))
-    static_sources = build_oasis_input_sources(input_dir, rainfall_source="mock")
+    static_sources = build_hydromind_input_sources(input_dir, rainfall_source="mock")
     if use_live_data:
-        observed = rainfall_observation_source or build_oasis_input_sources(
+        observed = rainfall_observation_source or build_hydromind_input_sources(
             input_dir, rainfall_source="sepa", sepa_station_numbers=["auto"],
             sepa_buffer_meters=sepa_buffer_meters,
         )["rainfall"]
-        forecast = rainfall_forecast_source or build_oasis_input_sources(
+        forecast = rainfall_forecast_source or build_hydromind_input_sources(
             input_dir, rainfall_source="metoffice-site",
             metoffice_horizon_hours=forecast_horizon,
         )["rainfall"]
@@ -426,14 +426,14 @@ def _run_temporal_hazard(
     high_sources = build_reference_flood_sources(input_dir, hazard_type=hazard_type, scenario="high")
     medium_sources = build_reference_flood_sources(input_dir, hazard_type=hazard_type, scenario="medium")
     low_sources = build_reference_flood_sources(input_dir, hazard_type=hazard_type, scenario="low")
-    static_sources = build_oasis_input_sources(input_dir, rainfall_source="mock")
+    static_sources = build_hydromind_input_sources(input_dir, rainfall_source="mock")
     rainfall_observation = None
     rainfall_forecast = None
     if use_live_data:
-        rainfall_observation = rainfall_observation_source or build_oasis_input_sources(
+        rainfall_observation = rainfall_observation_source or build_hydromind_input_sources(
             input_dir, rainfall_source="sepa", sepa_station_numbers=["auto"],
         )["rainfall"]
-        rainfall_forecast = rainfall_forecast_source or build_oasis_input_sources(
+        rainfall_forecast = rainfall_forecast_source or build_hydromind_input_sources(
             input_dir, rainfall_source="metoffice-site",
             metoffice_horizon_hours=forecast_horizon,
         )["rainfall"]
@@ -560,7 +560,7 @@ def _format_hazard_result(
 def _config_path(filename: str) -> Path:
     """Resolve packaged project configs without depending on the process CWD."""
 
-    configured = os.getenv("OASIS_CORE_ANALYST_CONFIG_DIR")
+    configured = os.getenv("HYDROMIND_CORE_ANALYST_CONFIG_DIR")
     candidates = []
     if configured:
         candidates.append(Path(configured) / filename)

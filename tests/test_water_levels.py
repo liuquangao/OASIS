@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from oasis.domain.water_levels import relative_level_context
+from hydromind.domain.water_levels import relative_level_context
 
 
 @pytest.mark.parametrize(

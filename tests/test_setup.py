@@ -4,8 +4,8 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
-from oasis.settings import Settings
-from oasis.setup import SetupCoordinator, configuration_status
+from hydromind.settings import Settings
+from hydromind.setup import SetupCoordinator, configuration_status
 
 
 def _verification(*errors: str) -> dict:
@@ -28,7 +28,7 @@ def test_setup_reports_required_and_optional_configuration(monkeypatch) -> None:
     items = {item["id"]: item for item in configuration_status(settings)}
 
     assert items["agent_model"]["configured"] is False
-    assert items["agent_model"]["environment_variables"] == ["OASIS_MODEL", "OPENAI_API_KEY"]
+    assert items["agent_model"]["environment_variables"] == ["HYDROMIND_MODEL", "OPENAI_API_KEY"]
     assert items["metoffice_forecast"]["configured"] is False
     assert items["admiralty_tides"]["importance"] == "optional"
     assert items["ceda_historical_forecast"]["configured"] is False
@@ -45,7 +45,7 @@ def test_openai_model_requires_its_api_key() -> None:
 
 def test_setup_can_automatically_repair_only_missing_risk_inputs(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
-        "oasis.setup.verify_glasgow_5m",
+        "hydromind.setup.verify_glasgow_5m",
         lambda _: _verification("missing processed/facilities/critical_services.geojson"),
     )
     coordinator = SetupCoordinator()
@@ -63,8 +63,8 @@ def test_setup_can_automatically_repair_only_missing_risk_inputs(monkeypatch, tm
 
 def test_full_rebuild_waits_for_the_licensed_lcm(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
-        "oasis.setup.verify_glasgow_5m",
-        lambda _: _verification("missing OASIS_Rasters/OASIS_Rasters/DTM_5m_res.tif"),
+        "hydromind.setup.verify_glasgow_5m",
+        lambda _: _verification("missing HYDROMIND_Rasters/HYDROMIND_Rasters/DTM_5m_res.tif"),
     )
     coordinator = SetupCoordinator()
     lcm_path = tmp_path / "gb2019lcm25m.tif"
@@ -94,8 +94,8 @@ async def test_initialize_runs_risk_preparation_once_and_reverifies(monkeypatch,
         prepared = True
         return {"status": "success"}
 
-    monkeypatch.setattr("oasis.setup.verify_glasgow_5m", verify)
-    monkeypatch.setattr("oasis.setup.prepare_risk_inputs", prepare)
+    monkeypatch.setattr("hydromind.setup.verify_glasgow_5m", verify)
+    monkeypatch.setattr("hydromind.setup.prepare_risk_inputs", prepare)
     coordinator = SetupCoordinator()
     settings = Settings(
         model="openai:gpt-5-mini",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from oasis.integrations.sepa import SepaTimeSeriesClient
+from hydromind.integrations.sepa import SepaTimeSeriesClient
 
 
 @pytest.mark.asyncio
@@ -65,7 +65,7 @@ async def test_recent_level_summary_parses_sepa_json() -> None:
     assert summary.relative_level_percent == pytest.approx(3.7)
     assert summary.level_state == "normal"
     assert summary.provenance.integration == (
-        "oasis.integrations.sepa.SepaTimeSeriesClient"
+        "hydromind.integrations.sepa.SepaTimeSeriesClient"
     )
 
 

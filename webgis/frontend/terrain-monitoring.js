@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const data = window.OASIS_MONITORING_DATA;
+  const data = window.HYDROMIND_MONITORING_DATA;
   const mapMessage = document.getElementById("map-message");
 
   function showMessage(message) {

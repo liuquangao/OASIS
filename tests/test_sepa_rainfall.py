@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from oasis.integrations.sepa import SepaTimeSeriesClient
+from hydromind.integrations.sepa import SepaTimeSeriesClient
 
 
 @pytest.mark.asyncio
@@ -135,6 +135,6 @@ async def test_recent_rainfall_near_location_summarizes_nearest_gauge() -> None:
     assert station.maximum_1h_mm == pytest.approx(1.2)
     assert station.quality_codes == [0, 254]
     assert summary.provenance.integration == (
-        "oasis.integrations.sepa.SepaTimeSeriesClient"
+        "hydromind.integrations.sepa.SepaTimeSeriesClient"
     )
     assert any("quality codes" in warning for warning in summary.warnings)

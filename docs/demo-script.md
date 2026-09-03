@@ -1,4 +1,4 @@
-# OASIS competition demo — 2:45 target
+# HydroMind competition demo — 2:45 target
 
 Record a genuine run with cached inputs and edit only dead time. Keep the timer
 strictly below three minutes.
@@ -9,7 +9,7 @@ Show Glasgow and ask:
 
 > What is the flood risk and social-equity priority across Glasgow for the next 24 hours?
 
-Say: “OASIS separates physical Hazard, exposed people/assets, social
+Say: “HydroMind separates physical Hazard, exposed people/assets, social
 Vulnerability, and a value-dependent intervention Priority. The language model
 does not invent any Data Zone values.”
 
@@ -63,5 +63,5 @@ actions: retry, use cache, or choose a current/static scenario.
 
 ## 2:40–2:45 — Close
 
-“OASIS is complete for Glasgow today. Its adapters and alignment checks are
+“HydroMind is complete for Glasgow today. Its adapters and alignment checks are
 transferable, but we do not claim that a second city is already operational.”

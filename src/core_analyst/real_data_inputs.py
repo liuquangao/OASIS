@@ -541,7 +541,7 @@ def prepare_os_openmap_buildings(
     clip_geometry = None
     clip_bbox = None
     if clip_to_glasgow_buffer:
-        glasgow_path = input_dir / "OASIS_Polygon" / "OASIS_Polygon" / "Glasgow_City_1km_buffer.shp"
+        glasgow_path = input_dir / "HYDROMIND_Polygon" / "HYDROMIND_Polygon" / "Glasgow_City_1km_buffer.shp"
         if glasgow_path.exists():
             glasgow_features = list(iter_shapefile_features(glasgow_path))
             if not glasgow_features:

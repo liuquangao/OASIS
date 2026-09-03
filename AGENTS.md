@@ -1,8 +1,8 @@
-# OASIS guidance for coding agents
+# HydroMind guidance for coding agents
 
 ## Mission
 
-OASIS combines a browser-based Glasgow flood map, a PydanticAI tool-using
+HydroMind combines a browser-based Glasgow flood map, a PydanticAI tool-using
 Agent, live observation integrations, and deterministic Core Analyst raster
 workflows. Preserve the separation between probabilistic language-model
 reasoning and deterministic scientific calculations.
@@ -19,8 +19,8 @@ Read `README.md` before changing setup, data, model, or service behavior. Check
 - Build all other inputs with:
 
   ```bash
-  oasis data rebuild --lcm2019 /path/to/gb2019lcm25m.tif --accept-licences
-  oasis data verify
+  hydromind data rebuild --lcm2019 /path/to/gb2019lcm25m.tif --accept-licences
+  hydromind data verify
   ```
 
 - A successful verification must report `"ok": true`. Do not treat incomplete,
@@ -30,16 +30,16 @@ Read `README.md` before changing setup, data, model, or service behavior. Check
 
 ## Model modes
 
-OASIS supports two real semantic-model modes plus `test` for offline tests:
+HydroMind supports two real semantic-model modes plus `test` for offline tests:
 
 1. Hosted API: set a PydanticAI model identifier and the provider credential,
-   for example `OASIS_MODEL=openai:gpt-5-mini` and `OPENAI_API_KEY=...`.
-2. Local vLLM: set `OASIS_MODEL_PROVIDER=vllm`, the served model name,
+   for example `HYDROMIND_MODEL=openai:gpt-5-mini` and `OPENAI_API_KEY=...`.
+2. Local vLLM: set `HYDROMIND_MODEL_PROVIDER=vllm`, the served model name,
    `OPENAI_BASE_URL`, and a non-empty placeholder `OPENAI_API_KEY`.
 
 The tested local model is Qwen3.8-27B. Serve it with Qwen's `qwen3` reasoning
 parser and `qwen3_coder` tool-call parser. The vLLM adapter in
-`src/oasis/runtime.py` deliberately merges leading system messages because the
+`src/hydromind/runtime.py` deliberately merges leading system messages because the
 Qwen chat template accepts only one initial system message. Do not remove this
 profile override without an end-to-end PydanticAI tool-call test.
 
@@ -49,11 +49,11 @@ runtime adapter.
 
 ## Runtime layout
 
-- `src/oasis/agent.py`: Agent instructions and toolset composition.
-- `src/oasis/runtime.py`: provider selection and dependency wiring.
-- `src/oasis/settings.py`: `.env` configuration.
-- `src/oasis/toolsets/`: model-facing tools with typed results.
-- `src/oasis/integrations/`: external services and Core Analyst adapters.
+- `src/hydromind/agent.py`: Agent instructions and toolset composition.
+- `src/hydromind/runtime.py`: provider selection and dependency wiring.
+- `src/hydromind/settings.py`: `.env` configuration.
+- `src/hydromind/toolsets/`: model-facing tools with typed results.
+- `src/hydromind/integrations/`: external services and Core Analyst adapters.
 - `src/core_analyst/`: deterministic hazard and exposure workflows.
 - `webgis/frontend/`: Leaflet frontend.
 - `webgis/docker-compose.yml`: PostGIS and GeoServer services.
@@ -62,13 +62,13 @@ Default local ports are:
 
 | Service | Port |
 | --- | ---: |
-| OASIS Agent API | 8000 |
+| HydroMind Agent API | 8000 |
 | Local vLLM | 8001 |
 | Frontend development server | 3000 |
 | GeoServer | 8080 |
 | PostGIS | 5432 |
 
-Do not move vLLM to port 8000 while the OASIS API uses that port.
+Do not move vLLM to port 8000 while the HydroMind API uses that port.
 
 ## Validation
 
@@ -84,11 +84,11 @@ of the following rather than relying only on a plain chat completion:
 
 1. `curl http://127.0.0.1:8001/v1/models` succeeds in local mode.
 2. The model emits a valid OpenAI-compatible function/tool call.
-3. `oasis agent "Assess the available flood evidence for Glasgow"` completes.
+3. `hydromind agent "Assess the available flood evidence for Glasgow"` completes.
 4. `POST /agent/turn` returns a valid `MapAgentResponse` with tool events.
 5. `GET /health` reports `semantic_model` as `configured`.
 
-For data or analysis changes, also run `oasis data verify` and the relevant
+For data or analysis changes, also run `hydromind data verify` and the relevant
 static workflow. Never claim success based only on process startup.
 
 ## Code and safety rules

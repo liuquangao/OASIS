@@ -10,12 +10,12 @@ import rasterio
 from rasterio.transform import from_origin
 
 from core_analyst.historical_validation import _forecast_reference_time
-from oasis.agent import tool_names_for_intent
-from oasis.assessment import create_assessment_plan, load_assessment_plan
-from oasis.integrations.core_analysis import CoreAnalystAnalysisService
-from oasis.models.analysis import DataReadinessItem, DataReadinessSummary, PriorityWeights
-from oasis.models.assessment import AnalysisIntent
-from oasis.models.current_hazard import CurrentHazardSnapshot
+from hydromind.agent import tool_names_for_intent
+from hydromind.assessment import create_assessment_plan, load_assessment_plan
+from hydromind.integrations.core_analysis import CoreAnalystAnalysisService
+from hydromind.models.analysis import DataReadinessItem, DataReadinessSummary, PriorityWeights
+from hydromind.models.assessment import AnalysisIntent
+from hydromind.models.current_hazard import CurrentHazardSnapshot
 
 
 class FakeCurrentHazard:

@@ -1,6 +1,6 @@
 import pytest
 
-from oasis.domain.areas import resolve_area
+from hydromind.domain.areas import resolve_area
 
 
 def test_resolve_glasgow_alias() -> None:

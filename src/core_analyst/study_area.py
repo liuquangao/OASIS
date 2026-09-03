@@ -9,7 +9,7 @@ from rasterio.crs import CRS
 from rasterio.warp import transform_bounds
 
 
-DEFAULT_GLASGOW_1KM_BUFFER = Path("OASIS_Polygon") / "OASIS_Polygon" / "Glasgow_City_1km_buffer.shp"
+DEFAULT_GLASGOW_1KM_BUFFER = Path("HYDROMIND_Polygon") / "HYDROMIND_Polygon" / "Glasgow_City_1km_buffer.shp"
 
 
 @dataclass(frozen=True)

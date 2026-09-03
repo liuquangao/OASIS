@@ -8,29 +8,29 @@ param(
 
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$oasisRoot = (Resolve-Path -LiteralPath (Join-Path $projectRoot "..\..")).Path
-$oasisExe = Join-Path $oasisRoot ".venv\Scripts\oasis.exe"
+$hydromindRoot = (Resolve-Path -LiteralPath (Join-Path $projectRoot "..\..")).Path
+$hydromindExe = Join-Path $hydromindRoot ".venv\Scripts\hydromind.exe"
 $snapshotPath = Join-Path $projectRoot "frontend\assets\terrain-monitoring\monitoring-snapshot.js"
 
-if (-not (Test-Path -LiteralPath $oasisExe -PathType Leaf)) {
-    throw "OASIS CLI was not found: $oasisExe"
+if (-not (Test-Path -LiteralPath $hydromindExe -PathType Leaf)) {
+    throw "HydroMind CLI was not found: $hydromindExe"
 }
 
-function Invoke-OasisJson {
+function Invoke-HydroMindJson {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
-    $text = (& $oasisExe @Arguments | Out-String)
+    $text = (& $hydromindExe @Arguments | Out-String)
     if ($LASTEXITCODE -ne 0) {
-        throw "OASIS command failed: $($Arguments -join ' ')"
+        throw "HydroMind command failed: $($Arguments -join ' ')"
     }
     return $text | ConvertFrom-Json
 }
 
-$levels = Invoke-OasisJson -Arguments @(
+$levels = Invoke-HydroMindJson -Arguments @(
     "tool", "water-levels", "--place", "glasgow",
     "--radius-km", "$RadiusKm", "--days", "$WaterLevelDays",
     "--limit", "$StationLimit"
 )
-$rainfall = Invoke-OasisJson -Arguments @(
+$rainfall = Invoke-HydroMindJson -Arguments @(
     "tool", "rainfall", "--place", "glasgow",
     "--radius-km", "$RadiusKm", "--hours", "$RainfallHours",
     "--limit", "$StationLimit"
@@ -43,7 +43,7 @@ $payload = [ordered]@{
     water_levels = $levels
 }
 $json = $payload | ConvertTo-Json -Depth 30 -Compress
-$javascript = "window.OASIS_MONITORING_DATA = ${json};`n"
+$javascript = "window.HYDROMIND_MONITORING_DATA = ${json};`n"
 [IO.File]::WriteAllText($snapshotPath, $javascript, [Text.UTF8Encoding]::new($false))
 
 Write-Host "Updated monitoring snapshot: $snapshotPath"

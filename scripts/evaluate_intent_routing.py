@@ -6,9 +6,9 @@ from __future__ import annotations
 import asyncio
 import json
 
-from oasis.agent import intent_agent
-from oasis.runtime import _intent_model_settings, _select_model
-from oasis.settings import Settings
+from hydromind.agent import intent_agent
+from hydromind.runtime import _intent_model_settings, _select_model
+from hydromind.settings import Settings
 
 
 PROMPTS = [

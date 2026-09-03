@@ -1,7 +1,7 @@
 import pytest
 
-from oasis.agent import flood_agent
-from oasis.runtime import run_agent
+from hydromind.agent import flood_agent
+from hydromind.runtime import run_agent
 
 
 def test_agent_is_defined_without_binding_a_provider() -> None:
