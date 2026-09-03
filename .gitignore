@@ -9,5 +9,6 @@ webgis/frontend/config.local.js
 
 # Large local Core Analyst geodatabase and generated rasters.
 analysis/core-analyst/Input/
+analysis/core-analyst/Input.zip
 analysis/core-analyst/outputs/
 analysis/core-analyst/.hydromind-data-cache/

@@ -19,62 +19,7 @@ from core_analyst.data_sources import (
     NRFAHistoricalRiverFlowSource,
     SEPARainfallAPISource,
 )
-from core_analyst.data_registry import build_core_data_registry
 from core_analyst.study_area import load_glasgow_1km_buffer_bounds
-
-
-HYDROMIND_RASTER_FILES = {
-    "dem": "DTM_5m_res.tif",
-    "built_up": "OS_Built_Up_Areas_5m_res.tif",
-    "greenspace": "OS_Greenspace_5m_res.tif",
-    "rivers": "OS_Rivers_5m_res.tif",
-    "landcover": "UKCEH_Landcover_5m_res.tif",
-    "sepa_combined_high": "SEPA_Coastal_and_River_Hi.tif",
-    "sepa_combined_medium": "SEPA_Coastal_and_River_Me.tif",
-    "sepa_combined_low": "SEPA_Coastal_and_River_Lo.tif",
-    "slope_degrees": "Slope_degrees_DTM_5m.tif",
-    "slope_percent": "Slope_percent_DTM_5m.tif",
-}
-
-
-def build_hydromind_real_sources(
-    raster_dir: str | Path,
-    rainfall_multiplier: float = 1.0,
-):
-    """Build the legacy GeoTIFF-only source bundle kept for compatibility."""
-
-    raster_dir = Path(raster_dir)
-    dem = AlignedRasterSource(
-        "dem",
-        raster_dir / HYDROMIND_RASTER_FILES["dem"],
-        resampling=Resampling.bilinear,
-    )
-    built_up = AlignedRasterSource(
-        "built_up",
-        raster_dir / HYDROMIND_RASTER_FILES["built_up"],
-        resampling=Resampling.nearest,
-    )
-    greenspace_path = raster_dir / HYDROMIND_RASTER_FILES["greenspace"]
-    greenspace = (
-        AlignedRasterSource(
-            "greenspace",
-            greenspace_path,
-            resampling=Resampling.nearest,
-        )
-        if greenspace_path.exists()
-        else None
-    )
-    return {
-        "dem": dem,
-        "slope": AlignedRasterSource(
-            "slope",
-            raster_dir / HYDROMIND_RASTER_FILES["slope_degrees"],
-            resampling=Resampling.bilinear,
-        ),
-        "flow_accumulation": TopographicFlowProxySource(dem),
-        "imperviousness": ImperviousnessCompositeSource(built_up, greenspace),
-        "rainfall": MockRainfallAPISource(multiplier=rainfall_multiplier),
-    }
 
 
 GDB_LAYERS = {
@@ -242,9 +187,3 @@ def build_historical_hydrological_sources(input_dir: str | Path = "Input"):
     if rainfall_zip.exists():
         sources["nrfa_historical_rainfall"] = NRFAHistoricalRainfallSource(rainfall_zip)
     return sources
-
-
-def build_data_availability_contract(input_dir: str | Path = "Input"):
-    """Return the machine-readable data availability registry for the fixed Core Analyst architecture."""
-
-    return build_core_data_registry(input_dir)

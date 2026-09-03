@@ -93,7 +93,7 @@ Optional runtime integrations are configured in `.env`:
 ## Project layout
 
 ```text
-src/hydromind/          Agent, API, toolsets, models, and integrations
+src/hydromind/      Agent, API, toolsets, models, and integrations
 src/core_analyst/   Deterministic hazard and exposure workflows
 webgis/frontend/    HydroMind Leaflet interface
 webgis/             GeoServer, PostGIS, and WebGIS configuration
@@ -112,6 +112,5 @@ are research evidence for human review. They are not operational flood
 warnings. Provenance, timestamps, limitations, and explicit decision weights
 must remain visible in any reported result.
 
-See [the demo script](docs/demo-script.md),
-[competition evidence](docs/competition-evidence.md), and
-[WebGIS notes](webgis/README.md) for more detail.
+See [the demo script](docs/demo-script.md) and
+[competition evidence](docs/competition-evidence.md) for more detail.

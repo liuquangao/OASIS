@@ -97,21 +97,14 @@ def test_spatial_agent_exposes_extended_core_analysis_tools() -> None:
     assert {
         "get_core_analysis_data_readiness",
         "run_core_hazard_analysis",
-        "run_core_exposure_analysis",
-        "run_core_vulnerability_analysis",
-        "run_core_priority_analysis",
-        "compare_core_priority_scenarios",
         "run_core_priority_sensitivity",
         "compare_core_analysis_runs",
-        "combine_core_hazard_analyses",
         "get_core_coastal_dynamic_evidence",
         "run_all_core_hazards",
         "run_core_flood_priority_assessment",
         "list_nrfa_historical_stations",
         "query_nrfa_historical_series",
         "plan_generalized_core_analysis",
-        "register_core_hazard_extension",
-        "run_registered_core_hazard",
     } <= tools
 
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import TypeAdapter
 from pydantic_ai import FunctionToolset, RunContext
 
 from hydromind.deps import MapAgentDeps
@@ -13,8 +12,6 @@ from hydromind.models.analysis import (
     AnalysisRunSummary,
     DataReadinessSummary,
     GeneralizedAnalysisPlan,
-    ExtensionFactor,
-    HazardExtensionSpec,
     PriorityScenarioInput,
     PriorityUnitInput,
     PriorityWeights,
@@ -101,50 +98,6 @@ async def run_core_hazard_analysis(
 
 
 @analysis_tools.tool
-async def run_core_exposure_analysis(
-    ctx: RunContext[MapAgentDeps],
-    hazard_run_id: str,
-    exposure_types: list[
-        Literal["population", "buildings", "critical_infrastructure"]
-    ] | None = None,
-    hazard_threshold: int = 2,
-) -> AnalysisRunSummary:
-    """Analyse verified population/building/facility exposure for a hazard run."""
-
-    if hazard_threshold not in {1, 2, 3}:
-        raise ValueError("hazard_threshold must be 1, 2, or 3")
-    _trace(ctx, "run_core_exposure_analysis")
-    return _show_layers(ctx, await ctx.deps.analysis.run_exposure(
-        hazard_run_id=hazard_run_id,
-        exposure_types=exposure_types,
-        hazard_threshold=hazard_threshold,
-    ))
-
-
-@analysis_tools.tool
-async def combine_core_hazard_analyses(
-    ctx: RunContext[MapAgentDeps],
-    pluvial_run_id: str,
-    fluvial_run_id: str,
-    coastal_run_id: str,
-    scenario: Literal["current", "future"],
-    exposure_threshold: int = 2,
-) -> AnalysisRunSummary:
-    """Combine aligned pluvial, fluvial, and coastal runs by pixelwise maximum."""
-
-    if exposure_threshold not in {1, 2, 3}:
-        raise ValueError("exposure_threshold must be 1, 2, or 3")
-    _trace(ctx, "combine_core_hazard_analyses")
-    return _show_layers(ctx, await ctx.deps.analysis.combine_hazards(
-        pluvial_run_id=pluvial_run_id,
-        fluvial_run_id=fluvial_run_id,
-        coastal_run_id=coastal_run_id,
-        scenario=scenario,
-        exposure_threshold=exposure_threshold,
-    ))
-
-
-@analysis_tools.tool
 async def get_core_coastal_dynamic_evidence(
     ctx: RunContext[MapAgentDeps],
     historical_hours: int = 24,
@@ -161,57 +114,6 @@ async def get_core_coastal_dynamic_evidence(
     return await ctx.deps.analysis.coastal_dynamic_evidence(
         historical_hours=historical_hours
     )
-
-
-@analysis_tools.tool
-async def run_core_vulnerability_analysis(
-    ctx: RunContext[MapAgentDeps],
-    scenario: Literal["current", "future"] = "current",
-    dimensions: list[
-        Literal["demographic", "socioeconomic", "accessibility"]
-    ] | None = None,
-) -> AnalysisRunSummary:
-    """Build relative vulnerability profiles from verified statistical geography."""
-
-    _trace(ctx, "run_core_vulnerability_analysis")
-    return _show_layers(ctx, await ctx.deps.analysis.run_vulnerability(
-        scenario=scenario,
-        dimensions=dimensions,
-    ))
-
-
-@analysis_tools.tool
-async def run_core_priority_analysis(
-    ctx: RunContext[MapAgentDeps],
-    units: list[PriorityUnitInput],
-    hazard_weight: float,
-    exposure_weight: float,
-    vulnerability_weight: float,
-    scenario_name: str = "custom",
-    top_n: int = 10,
-) -> AnalysisRunSummary:
-    """Rank explicit unit-level hazard, exposure, and vulnerability scores.
-
-    Every unit must provide all three normalized scores. Do not invent scores or
-    derive unit rankings from whole-area aggregate summaries.
-    """
-
-    if not units:
-        raise ValueError("At least one unit is required")
-    if not 1 <= top_n <= 100:
-        raise ValueError("top_n must be between 1 and 100")
-    weights = PriorityWeights(
-        hazard=hazard_weight,
-        exposure=exposure_weight,
-        vulnerability=vulnerability_weight,
-    )
-    _trace(ctx, "run_core_priority_analysis")
-    return _show_layers(ctx, await ctx.deps.analysis.run_priority(
-        units=units,
-        weights=weights,
-        scenario_name=scenario_name,
-        top_n=top_n,
-    ))
 
 
 @analysis_tools.tool
@@ -334,69 +236,6 @@ async def plan_generalized_core_analysis(
         area=area,
         hazard_type=hazard_type,
         temporal_scope=temporal_scope,
-    )
-
-
-@analysis_tools.tool
-async def register_core_hazard_extension(
-    ctx: RunContext[MapAgentDeps],
-    hazard_type: str,
-    factors: list[ExtensionFactor],
-    medium_threshold: float,
-    high_threshold: float,
-) -> AnalysisRunSummary:
-    """Register a configuration-driven hazard workflow; use only when the user explicitly asks to extend the framework."""
-
-    _trace(ctx, "register_core_hazard_extension")
-    return await ctx.deps.analysis.register_extension(HazardExtensionSpec(
-        hazard_type=hazard_type,
-        factors=factors,
-        medium_threshold=medium_threshold,
-        high_threshold=high_threshold,
-    ))
-
-
-@analysis_tools.tool
-async def run_registered_core_hazard(
-    ctx: RunContext[MapAgentDeps],
-    hazard_type: str,
-    area: str,
-    factor_paths_json: str,
-) -> AnalysisRunSummary:
-    """Run a registered hazard extension from a JSON object mapping factor names to local raster paths."""
-
-    factor_paths = TypeAdapter(dict[str, str]).validate_json(factor_paths_json)
-    _trace(ctx, "run_registered_core_hazard")
-    return _show_layers(ctx, await ctx.deps.analysis.run_extension(
-        hazard_type=hazard_type,
-        area=area,
-        factor_paths=factor_paths,
-    ))
-
-
-@analysis_tools.tool
-async def compare_core_priority_scenarios(
-    ctx: RunContext[MapAgentDeps],
-    units: list[PriorityUnitInput],
-    scenarios_json: str,
-    top_n: int = 10,
-) -> AnalysisRunSummary:
-    """Compare rankings under explicit scenarios supplied as a JSON array.
-
-    Each array item needs name and weights with hazard, exposure, and
-    vulnerability values summing to one.
-    """
-
-    if not units:
-        raise ValueError("At least one unit is required")
-    scenarios = TypeAdapter(list[PriorityScenarioInput]).validate_json(scenarios_json)
-    if len(scenarios) < 2:
-        raise ValueError("At least two scenarios are required")
-    _trace(ctx, "compare_core_priority_scenarios")
-    return await ctx.deps.analysis.compare_priority(
-        units=units,
-        scenarios=scenarios,
-        top_n=top_n,
     )
 
 

@@ -825,12 +825,10 @@ function renderSetupStatus(status) {
   }
 
   configuration.forEach((item) => {
-    if (item.configured && item.importance !== "required") return;
+    if (item.configured) return;
     const variables = item.environment_variables.join(", ");
-    const detail = item.configured
-      ? item.message
-      : `${item.message} Configure: ${variables}.`;
-    const state = item.configured ? "ok" : item.importance === "required" ? "missing" : "info";
+    const detail = `${item.message} Configure: ${variables}.`;
+    const state = item.importance === "required" ? "missing" : "info";
     body.appendChild(setupItem(item.label, state, detail));
   });
 

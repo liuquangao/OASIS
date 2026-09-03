@@ -81,13 +81,6 @@ class ExecutionStep(BaseModel):
     retry_count: int = Field(default=0, ge=0)
 
 
-class QualityCheck(BaseModel):
-    code: str
-    status: Literal["pass", "warning", "fail"]
-    message: str
-    evidence: dict[str, Any] = Field(default_factory=dict)
-
-
 class RecoveryRecord(BaseModel):
     step_id: str
     action: Literal["retry", "reuse_cache", "degrade", "stop"]

@@ -11,7 +11,6 @@ services:
     volumes:
       - postgis_data:/var/lib/postgresql/data
       - ./backend/postgis/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-      - ./data:/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gis -d glasgow_flood"]
       interval: 10s
@@ -34,35 +33,6 @@ services:
       - "8080:8080"
     volumes:
       - geoserver_data:/opt/geoserver_data
-      - ./data:/data
-
-  api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      args:
-        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-python:3.12-slim}
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
-        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-180}
-    container_name: glasgow-fastapi
-    depends_on:
-      postgis:
-        condition: service_healthy
-      geoserver:
-        condition: service_started
-    environment:
-      POSTGRES_HOST: postgis
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: glasgow_flood
-      POSTGRES_USER: gis
-      POSTGRES_PASSWORD: gis_password
-      METADATA_PATH: /app/data/metadata/datasets.json
-      ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data:ro
 
 volumes:
   postgis_data:
