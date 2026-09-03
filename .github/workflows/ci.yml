@@ -28,28 +28,24 @@ jobs:
           cache: pip
           cache-dependency-path: constraints.txt
 
-      # Windows runners ship Git with core.autocrlf=true. Without the repository
-      # .gitattributes this rewrites LF to CRLF on checkout, which changes the
-      # SHA-256 of the hash-locked DTM edge patch and makes `hydromind data
-      # rebuild` refuse to start. Check it before anything else, so the failure
-      # names its own cause instead of surfacing later as a data-build error.
+      # A checkout that rewrote LF to CRLF changes the SHA-256 of the hash-locked
+      # DTM edge patch, and `hydromind data rebuild` then refuses to start with no
+      # hint about why. Check it before installing anything, so the failure names
+      # its own cause instead of surfacing later as a data-build error.
       - name: Checkout is byte-exact
-        shell: python
-        run: |
-          import hashlib, json, pathlib, sys
+        run: python scripts/check_checkout.py
 
-          lock = json.loads(pathlib.Path("data/glasgow-5m-sources.json").read_text(encoding="utf-8"))
-          patch = lock["legacy_edge_patch"]
-          raw = pathlib.Path(patch["path"]).read_bytes()
-          actual = hashlib.sha256(raw).hexdigest()
-          if actual == patch["sha256"]:
-              print(f"{patch['path']}: {len(raw)} bytes, sha256 matches the source lock.")
-              sys.exit(0)
-          if b"\r\n" in raw:
-              print("::error::Checkout rewrote LF to CRLF; .gitattributes is missing or not honoured.")
-          print(f"::error::{patch['path']} expected sha256 {patch['sha256']} ({patch['bytes']} bytes), "
-                f"got {actual} ({len(raw)} bytes)")
-          sys.exit(1)
+      # Whether a runner image enables core.autocrlf is outside this repository's
+      # control, so do not let a green job depend on it. Force the hostile setting,
+      # re-materialise the file, and require .gitattributes to hold the line. A
+      # plain `git checkout` skips files that did not change, hence the delete.
+      - name: .gitattributes survives core.autocrlf=true
+        shell: bash
+        run: |
+          echo "runner: $(git config --show-origin --get core.autocrlf || echo 'core.autocrlf unset')"
+          rm -f data/glasgow-dtm-edge-patch.csv
+          git -c core.autocrlf=true checkout -- data/glasgow-dtm-edge-patch.csv
+          python scripts/check_checkout.py
 
       - name: Install
         run: |
