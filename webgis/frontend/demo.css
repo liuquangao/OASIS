@@ -525,6 +525,40 @@ body.agent-collapsed .agent-open-button {
   font-size: 16px;
 }
 
+.decision-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.decision-toggle {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #a5d8e4;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0e7490;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.decision-toggle:hover {
+  border-color: #0e7490;
+  background: #ecfeff;
+}
+
+.decision-toggle:focus-visible {
+  outline: 2px solid #0e7490;
+  outline-offset: 1px;
+}
+
+#decision-body[hidden] {
+  display: none;
+}
+
 .decision-status {
   padding: 4px 7px;
   border: 1px solid #a5d8e4;

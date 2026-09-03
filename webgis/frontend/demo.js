@@ -62,6 +62,8 @@ const assessmentDecision = document.getElementById("assessment-decision");
 const decisionControls = document.getElementById("decision-controls");
 const assessmentProgress = document.getElementById("assessment-progress");
 const assessmentStatusBadge = document.getElementById("assessment-status-badge");
+const decisionBody = document.getElementById("decision-body");
+const decisionToggle = document.getElementById("decision-toggle");
 const assessmentRationale = document.getElementById("assessment-rationale");
 const confirmAssessmentButton = document.getElementById("assessment-confirm");
 const weightInputs = {
@@ -118,11 +120,23 @@ function updateWeightDisplay() {
   return { values, valid };
 }
 
+function setDecisionCollapsed(collapsed) {
+  decisionBody.hidden = collapsed;
+  decisionToggle.textContent = collapsed ? "▸" : "▾";
+  decisionToggle.setAttribute("aria-expanded", String(!collapsed));
+  const label = `${collapsed ? "Expand" : "Collapse"} decision settings`;
+  decisionToggle.setAttribute("aria-label", label);
+  decisionToggle.title = label;
+}
+
+decisionToggle.addEventListener("click", () => setDecisionCollapsed(!decisionBody.hidden));
+
 function renderAssessmentPlan(plan) {
   if (!plan) return;
   activeAssessmentPlan = plan;
   assessmentMode = "plan";
   assessmentDecision.hidden = false;
+  setDecisionCollapsed(false);
   decisionControls.hidden = false;
   assessmentProgress.hidden = true;
   assessmentStatusBadge.textContent = "Awaiting confirmation";
