@@ -1,13 +1,20 @@
 .env
 .venv/
 .venv-py314-blocked/
+.vscode/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .runtime/
+webgis/.runtime/
 webgis/frontend/config.local.js
 
 # Large local Core Analyst geodatabase and generated rasters.
+data/Input/
+data/gb2019lcm25m.tif
+data/ukv_202310/
+data/**/*.grib
+data/**/*.part
 analysis/core-analyst/Input/
 analysis/core-analyst/Input.zip
 analysis/core-analyst/outputs/

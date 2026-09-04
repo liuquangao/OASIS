@@ -167,7 +167,7 @@ def configuration_status(settings: Settings) -> list[dict[str, Any]]:
         },
         {
             "id": "ceda_historical_forecast",
-            "label": "CEDA UKV historical forecast",
+            "label": "Local UKV historical forecast",
             "importance": "optional",
             "configured": bool(
                 settings.historical_ukv_path
@@ -175,14 +175,15 @@ def configuration_status(settings: Settings) -> list[dict[str, Any]]:
                 or (settings.ceda_username and settings.ceda_password)
             ),
             "environment_variables": [
+                "HYDROMIND_HISTORICAL_UKV_PATH",
                 "CEDA_ACCESS_TOKEN",
                 "CEDA_USERNAME",
                 "CEDA_PASSWORD",
-                "HYDROMIND_HISTORICAL_UKV_PATH",
             ],
             "message": (
-                "Required only for the October 2023 hindcast. Use a CEDA token, "
-                "account credentials, or a previously downloaded UKV GRIB file."
+                "Required only for the October 2023 hindcast. Prefer a local "
+                "UKV GRIB file or directory; CEDA credentials are only needed "
+                "for runtime archive download."
             ),
         },
         {

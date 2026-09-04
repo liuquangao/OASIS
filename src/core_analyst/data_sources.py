@@ -153,8 +153,13 @@ class NRFADailyZipSource:
 
     def _station_entries(self) -> dict[str, str]:
         if not self.zip_path.exists():
-            raise FileNotFoundError(f"NRFA ZIP not found: {self.zip_path}")
+            raise FileNotFoundError(f"NRFA source not found: {self.zip_path}")
         entries: dict[str, str] = {}
+        if self.zip_path.is_dir():
+            for path in self.zip_path.rglob("*.csv"):
+                station = path.stem.split("_")[0]
+                entries[station] = str(path)
+            return entries
         with ZipFile(self.zip_path) as archive:
             for name in archive.namelist():
                 if not name.lower().endswith(".csv"):
@@ -176,29 +181,14 @@ class NRFADailyZipSource:
             "data": {},
         }
         values: list[dict[str, Any]] = []
-        with ZipFile(self.zip_path) as archive:
-            with archive.open(entries[station_id]) as raw:
-                text = (line.decode("utf-8-sig", "replace") for line in raw)
-                reader = csv.reader(text)
-                in_data = False
-                for row in reader:
-                    if not row:
-                        continue
-                    if not in_data and len(row) >= 3 and row[0] in metadata:
-                        metadata[row[0]][row[1]] = row[2]
-                        continue
-                    if not in_data and row[0] == "data" and len(row) >= 3:
-                        metadata["data"][row[1]] = row[2]
-                        continue
-                    in_data = True
-                    if not include_values:
-                        continue
-                    if len(row) < 2:
-                        continue
-                    parsed_date = _parse_iso_date(row[0])
-                    if parsed_date is None:
-                        continue
-                    values.append({"date": parsed_date, "value": self._parse_value(row[1])})
+        if self.zip_path.is_dir():
+            with Path(entries[station_id]).open(encoding="utf-8-sig", errors="replace", newline="") as handle:
+                self._read_station_csv(csv.reader(handle), metadata, values, include_values)
+        else:
+            with ZipFile(self.zip_path) as archive:
+                with archive.open(entries[station_id]) as raw:
+                    text = (line.decode("utf-8-sig", "replace") for line in raw)
+                    self._read_station_csv(csv.reader(text), metadata, values, include_values)
         metadata["source_file"] = entries[station_id]
         metadata["zip_path"] = str(self.zip_path)
         metadata["dataset_kind"] = self.dataset_kind
@@ -211,6 +201,33 @@ class NRFADailyZipSource:
         metadata["license"] = self.license_name
         metadata["temporal_resolution"] = metadata.get("dataType", {}).get("period", "day")
         return {"metadata": metadata, "values": values}
+
+    def _read_station_csv(
+        self,
+        reader: Any,
+        metadata: dict[str, Any],
+        values: list[dict[str, Any]],
+        include_values: bool,
+    ) -> None:
+        in_data = False
+        for row in reader:
+            if not row:
+                continue
+            if not in_data and len(row) >= 3 and row[0] in metadata:
+                metadata[row[0]][row[1]] = row[2]
+                continue
+            if not in_data and row[0] == "data" and len(row) >= 3:
+                metadata["data"][row[1]] = row[2]
+                continue
+            in_data = True
+            if not include_values:
+                continue
+            if len(row) < 2:
+                continue
+            parsed_date = _parse_iso_date(row[0])
+            if parsed_date is None:
+                continue
+            values.append({"date": parsed_date, "value": self._parse_value(row[1])})
 
     @property
     def analytical_position(self) -> dict[str, str]:

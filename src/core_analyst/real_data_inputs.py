@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -10,6 +11,7 @@ from rasterio.warp import transform_geom
 from shapely.geometry import box, mapping, shape
 
 from core_analyst.analysts.data_zone_assessment import area_weight_polygon_values
+from core_analyst.input_layout import datazone2022_dir, polygon_dir
 
 from core_analyst.shapefile_utils import iter_shapefile_features, shapefile_metadata
 
@@ -338,6 +340,30 @@ def harmonise_simd_to_2022_data_zones(
 def build_simd_2020v2_indicators(source_path: str | Path, output_path: str | Path) -> dict[str, Any]:
     source_path = Path(source_path)
     output_path = Path(output_path)
+    if source_path.suffix.lower() == ".csv":
+        with source_path.open(newline="", encoding="utf-8-sig", errors="replace") as handle:
+            reader = csv.DictReader(handle)
+            required = {"id", "deprivation_score"}
+            missing = sorted(required - set(reader.fieldnames or []))
+            if missing:
+                raise ValueError(f"Prepared SIMD CSV is missing required columns: {missing}")
+            count = sum(1 for row in reader if row.get("id"))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if source_path.resolve() != output_path.resolve():
+            shutil.copyfile(source_path, output_path)
+        return {
+            "source": str(source_path),
+            "output": str(output_path),
+            "record_count": count,
+            "id_field": "id",
+            "source_data_zone_year": 2011,
+            "target_data_zone_year": 2022,
+            "target_data_zone_compatible": False,
+            "prepared_csv_reused": True,
+            "deprivation_score_definition": (
+                "Mean of SIMD 2020v2 Income_rate and Employment_rate indicators; not the overall SIMD rank."
+            ),
+        }
     if source_path.suffix.lower() not in {".xlsx", ".xlsm"}:
         raise ValueError(f"Unsupported SIMD source format: {source_path.suffix}")
     from openpyxl import load_workbook
@@ -413,8 +439,9 @@ def build_simd_2020v2_indicators(source_path: str | Path, output_path: str | Pat
 
 
 def build_census_data_zone_attributes(input_dir: Path, output_path: Path) -> dict[str, Any]:
-    age_path = input_dir / "Datazone2022" / "Table UV102b - Age (20) by sex.csv"
-    cars_path = input_dir / "Datazone2022" / "Table UV405 - Car or van availability.csv"
+    census_dir = datazone2022_dir(input_dir)
+    age_path = census_dir / "Table UV102b - Age (20) by sex.csv"
+    cars_path = census_dir / "Table UV405 - Car or van availability.csv"
     lookup_path = input_dir / "Output Area 2022 to Data Zone 2022 and Intermediate Zone 2022" / "DZ22_Lookup.csv"
     for path in (age_path, cars_path, lookup_path):
         if not path.exists():
@@ -515,7 +542,7 @@ def prepare_os_openmap_buildings(
     clip_geometry = None
     clip_bbox = None
     if clip_to_glasgow_buffer:
-        glasgow_path = input_dir / "HYDROMIND_Polygon" / "HYDROMIND_Polygon" / "Glasgow_City_1km_buffer.shp"
+        glasgow_path = polygon_dir(input_dir) / "Glasgow_City_1km_buffer.shp"
         if glasgow_path.exists():
             glasgow_features = list(iter_shapefile_features(glasgow_path))
             if not glasgow_features:
@@ -596,13 +623,17 @@ def find_data_zone_2011_boundary(input_dir: str | Path) -> Path | None:
 
 def find_simd_source(input_dir: str | Path) -> Path | None:
     input_dir = Path(input_dir)
+    preferred = input_dir / "processed" / "simd" / "simd_2020v2_indicators.csv"
+    if preferred.is_file():
+        return preferred
+    candidates = []
     for path in input_dir.rglob("*"):
-        if not path.is_file():
-            continue
-        if path.suffix.lower() not in {".csv", ".xlsx", ".xls", ".shp", ".geojson", ".json", ".gpkg"}:
+        if not path.is_file() or path.suffix.lower() not in {".csv", ".xlsx", ".xlsm"}:
             continue
         if "simd" in path.name.lower() or "deprivation" in path.name.lower():
-            return path
+            candidates.append(path)
+    if candidates:
+        return sorted(candidates, key=lambda item: (item.suffix.lower() not in {".xlsx", ".xlsm"}, len(str(item))))[0]
     return None
 
 

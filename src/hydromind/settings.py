@@ -34,7 +34,7 @@ class Settings(BaseModel):
         "current_hazard_class_5m/current_hazard_class_5m.geotiff"
     )
     current_hazard_output_dir: Path = Path("analysis/core-analyst/outputs/current")
-    core_analyst_input_dir: Path = Path("analysis/core-analyst/Input")
+    core_analyst_input_dir: Path = Path("data/Input")
     core_analyst_config_path: Path = Path(
         "analysis/core-analyst/config/pluvial_prediction_config.yaml"
     )
@@ -107,7 +107,7 @@ class Settings(BaseModel):
             core_analyst_input_dir=Path(
                 os.getenv(
                     "HYDROMIND_CORE_ANALYST_INPUT_DIR",
-                    "analysis/core-analyst/Input",
+                    "data/Input",
                 )
             ),
             core_analyst_config_path=Path(

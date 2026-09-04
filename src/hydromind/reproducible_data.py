@@ -20,6 +20,15 @@ from rasterio.warp import reproject
 import shapefile
 from shapely.geometry import mapping, shape
 
+from core_analyst.input_layout import (
+    datazone2022_dir,
+    datazone_boundaries2011_dir,
+    nrfa_flow_source,
+    nrfa_rainfall_source,
+    polygon_dir,
+    raster_dir,
+    simd_source,
+)
 from core_analyst.official_facilities import prepare_official_facilities
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -257,7 +266,7 @@ def verify_glasgow_5m(input_dir: str | Path) -> dict:
     input_dir = Path(input_dir)
     lock = load_source_lock()
     grid = lock["analysis_grid"]
-    raster_dir = input_dir / "HYDROMIND_Rasters" / "HYDROMIND_Rasters"
+    raster_root = raster_dir(input_dir)
     names = [
         "DTM_5m_res.tif",
         "Slope_degrees_DTM_5m.tif",
@@ -275,7 +284,7 @@ def verify_glasgow_5m(input_dir: str | Path) -> dict:
     checked = []
     expected_transform = from_origin(grid["bounds"][0], grid["bounds"][3], 5.0, 5.0)
     for name in names:
-        path = raster_dir / name
+        path = raster_root / name
         if not path.exists():
             errors.append(f"missing {path}")
             continue
@@ -288,16 +297,16 @@ def verify_glasgow_5m(input_dir: str | Path) -> dict:
                 errors.append(f"{name}: grid transform does not match the locked grid")
         checked.append(str(path))
     required = [
-        input_dir / "Datazone2022" / "Table UV102b - Age (20) by sex.csv",
-        input_dir / "Datazone2022" / "Table UV405 - Car or van availability.csv",
-        input_dir / "SIMD+2020v2+-+indicators.xlsx",
-        input_dir / "DataZoneBoundaries2011" / "SG_DataZone_Bdry_2011.shp",
+        datazone2022_dir(input_dir) / "Table UV102b - Age (20) by sex.csv",
+        datazone2022_dir(input_dir) / "Table UV405 - Car or van availability.csv",
+        simd_source(input_dir),
+        datazone_boundaries2011_dir(input_dir) / "SG_DataZone_Bdry_2011.shp",
         input_dir / "processed" / "data_zone" / "glasgow_data_zones_2022_enriched_simd.geojson",
         input_dir / "processed" / "facilities" / "critical_services.geojson",
         input_dir / "processed" / "facilities" / "facility_data_quality.json",
-        input_dir / NRFA_ROOT / "CSV" / "Gauged_daily_flow.zip",
-        input_dir / NRFA_ROOT / "CSV" / "Rainfall.zip",
-        input_dir / "HYDROMIND_Polygon" / "HYDROMIND_Polygon" / "Glasgow_City_1km_buffer.shp",
+        nrfa_flow_source(input_dir),
+        nrfa_rainfall_source(input_dir),
+        polygon_dir(input_dir) / "Glasgow_City_1km_buffer.shp",
     ]
     for path in required:
         if not path.exists():

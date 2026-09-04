@@ -8,6 +8,7 @@ from rasterio.coords import BoundingBox
 from rasterio.crs import CRS
 from rasterio.warp import transform_bounds
 
+from core_analyst.input_layout import polygon_dir
 
 DEFAULT_GLASGOW_1KM_BUFFER = Path("HYDROMIND_Polygon") / "HYDROMIND_Polygon" / "Glasgow_City_1km_buffer.shp"
 
@@ -36,7 +37,7 @@ class StudyAreaBounds:
 
 
 def load_glasgow_1km_buffer_bounds(input_dir: str | Path = "Input") -> StudyAreaBounds | None:
-    path = Path(input_dir) / DEFAULT_GLASGOW_1KM_BUFFER
+    path = polygon_dir(input_dir) / "Glasgow_City_1km_buffer.shp"
     if not path.exists():
         return None
     return read_shapefile_bounds(path, name="glasgow_city_1km_buffer")

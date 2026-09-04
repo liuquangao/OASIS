@@ -543,8 +543,8 @@ class CoreAnalystAnalysisService:
                 {
                     name: {
                         "analytical_position": source.analytical_position,
-                        "station_ids": source.station_ids() if source.zip_path.is_file() else [],
-                        "status": "available" if source.zip_path.is_file() else "unavailable",
+                        "station_ids": source.station_ids() if source.zip_path.exists() else [],
+                        "status": "available" if source.zip_path.exists() else "unavailable",
                     }
                     for name, source in historical.items()
                 },
@@ -1248,7 +1248,13 @@ class CoreAnalystAnalysisService:
         status = str(result.get("status", "failed"))
         if status not in _STATUSES:
             status = "success" if status == "available" else "failed"
-        map_layers = self._map_layers(run_id, analysis_type, result.get("outputs", {}))
+        warnings = result.setdefault("warnings", [])
+        map_layers = self._map_layers(
+            run_id,
+            analysis_type,
+            result.get("outputs", {}),
+            warnings=warnings,
+        )
         source_checksums = {
             key: self._sha256(Path(value))
             for key, value in result.get("outputs", {}).items()
@@ -1272,7 +1278,7 @@ class CoreAnalystAnalysisService:
                 key for key, value in result.get("outputs", {}).items() if value
             ),
             map_layers=map_layers,
-            warnings=self._warnings(result.get("warnings", [])),
+            warnings=self._warnings(warnings),
             requires_human_review=True,
         )
 
@@ -1281,6 +1287,8 @@ class CoreAnalystAnalysisService:
         run_id: str,
         analysis_type: str,
         outputs: dict[str, Any],
+        *,
+        warnings: list[Any] | None = None,
     ) -> list[AnalysisMapLayer]:
         layers: list[AnalysisMapLayer] = []
         for key, value in outputs.items():
@@ -1291,13 +1299,27 @@ class CoreAnalystAnalysisService:
             if path.suffix.lower() in {".tif", ".tiff"} and self._publisher:
                 if "hazard_class" not in key and not key.endswith("_class"):
                     continue
-                layers.append(
-                    self._publisher.publish_raster(
-                        path,
-                        name=f"{analysis_type}_{run_id}_{key}",
-                        label=label,
+                try:
+                    layers.append(
+                        self._publisher.publish_raster(
+                            path,
+                            name=f"{analysis_type}_{run_id}_{key}",
+                            label=label,
+                        )
                     )
-                )
+                except httpx.HTTPError as exc:
+                    if warnings is not None:
+                        warnings.append(
+                            {
+                                "code": "geoserver_publication_failed",
+                                "message": (
+                                    f"GeoServer publication failed for {key}; "
+                                    "the local analysis artifact was still saved."
+                                ),
+                                "detail": str(exc),
+                            }
+                        )
+                    continue
             elif path.suffix.lower() == ".geojson":
                 visible = not (
                     analysis_type == "flood_priority_assessment"

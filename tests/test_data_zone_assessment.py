@@ -15,6 +15,7 @@ from core_analyst.analysts.data_zone_assessment import (
 )
 from core_analyst.official_facilities import normalize_postcode, prepare_official_facilities
 from core_analyst.real_data_inputs import build_enriched_data_zone_geography
+from core_analyst.real_data_inputs import build_simd_2020v2_indicators, find_simd_source
 
 
 def _geojson(path: Path, features: list[dict]) -> Path:
@@ -70,6 +71,27 @@ def test_area_weighted_simd_transfer() -> None:
     ]
     target = [_feature(box(0, 0, 2, 1), id="target")]
     assert area_weight_polygon_values(source, target)["target"] == 0.5
+
+
+def test_prepared_simd_csv_is_preferred_over_enriched_geojson(tmp_path: Path) -> None:
+    processed_simd = tmp_path / "processed" / "simd"
+    processed_simd.mkdir(parents=True)
+    csv_path = processed_simd / "simd_2020v2_indicators.csv"
+    csv_path.write_text("id,deprivation_score\nS01000001,0.42\n", encoding="utf-8")
+    data_zone = tmp_path / "processed" / "data_zone"
+    data_zone.mkdir(parents=True)
+    (data_zone / "glasgow_data_zones_2022_enriched_simd.geojson").write_text(
+        '{"type":"FeatureCollection","features":[]}',
+        encoding="utf-8",
+    )
+
+    selected = find_simd_source(tmp_path)
+    output = tmp_path / "out" / "simd_2020v2_indicators.csv"
+    summary = build_simd_2020v2_indicators(selected, output)
+
+    assert selected == csv_path
+    assert output.read_text(encoding="utf-8") == csv_path.read_text(encoding="utf-8")
+    assert summary["prepared_csv_reused"] is True
 
 
 def test_official_facilities_use_postcodes_and_direct_coordinates(tmp_path: Path) -> None:

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+import httpx
 import rasterio
 from rasterio.warp import transform
 
@@ -136,7 +137,7 @@ class CoreAnalystCurrentHazard:
             ),
             dtype="uint8",
         )
-        self._publish_and_replace(temporary_raster)
+        publication_warnings = self._publish_and_replace(temporary_raster)
 
         observations = observed.metadata["observations"]
         station_times = [
@@ -158,22 +159,29 @@ class CoreAnalystCurrentHazard:
                 "published": "Core Analyst native 1=Low, 2=Medium, 3=High, 0=NoData",
             },
             "rainfall": observations,
-            "warnings": WARNINGS,
+            "warnings": [*WARNINGS, *publication_warnings],
         }
         temporary_metadata = self._metadata_path.with_suffix(".new.json")
         temporary_metadata.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         temporary_metadata.replace(self._metadata_path)
         return self._snapshot()
 
-    def _publish_and_replace(self, temporary_raster: Path) -> None:
+    def _publish_and_replace(self, temporary_raster: Path) -> list[str]:
+        publication_warnings: list[str] = []
         if self._publisher is not None:
             layer_name = self._layer.rsplit(":", 1)[-1]
-            self._publisher.publish_raster(
-                temporary_raster,
-                name=layer_name,
-                label="Current pluvial hazard snapshot",
-            )
+            try:
+                self._publisher.publish_raster(
+                    temporary_raster,
+                    name=layer_name,
+                    label="Current pluvial hazard snapshot",
+                )
+            except httpx.HTTPError as exc:
+                publication_warnings.append(
+                    "GeoServer publication failed; the local current hazard raster was still updated."
+                )
         temporary_raster.replace(self._raster_path)
+        return publication_warnings
 
     def _snapshot(self) -> CurrentHazardSnapshot:
         if not self._raster_path.is_file() or not self._metadata_path.is_file():

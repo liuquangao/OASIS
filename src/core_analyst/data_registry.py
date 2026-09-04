@@ -9,6 +9,8 @@ from typing import Any
 import rasterio
 from rasterio.errors import RasterioError
 
+from core_analyst.input_layout import nrfa_csv_dir, polygon_dir, raster_dir
+
 ADMIRALTY_ENV_KEYS = ("ADMIRALTY_API_KEY", "UKHO_API_KEY", "ADMIRALTY_TIDAL_API_KEY", "ADMIRALTY_SUBSCRIPTION_KEY")
 
 
@@ -39,9 +41,9 @@ class DataAvailabilityRecord:
 def build_core_data_registry(input_dir: str | Path = "Input") -> list[dict[str, Any]]:
     input_dir = Path(input_dir)
     gdb_path = input_dir / "HYDROMIND_raster.gdb" / "HYDROMIND_raster.gdb"
-    tif_dir = input_dir / "HYDROMIND_Rasters" / "HYDROMIND_Rasters"
-    csv_dir = input_dir / "CSV-20260825T012052Z-1-001" / "CSV"
-    polygons_dir = input_dir / "HYDROMIND_Polygon" / "HYDROMIND_Polygon"
+    tif_dir = raster_dir(input_dir)
+    csv_dir = nrfa_csv_dir(input_dir)
+    polygons_dir = polygon_dir(input_dir)
 
     gdb_layers = _gdb_layers(gdb_path)
     records: list[DataAvailabilityRecord] = []

@@ -1,0 +1,1168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HydroMind Static Demo</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQykNr9G7R4xE5sGvHdJoqzvBCOpTOE="
+      crossorigin=""
+    />
+    <style>
+      :root {
+        --bg: #f4f8fa;
+        --primary: #075985;
+        --secondary: #0ea5e9;
+        --highlight: #38bdf8;
+        --text: #0f2942;
+        --muted: #64748b;
+        --risk: #f59e0b;
+        --high: #ef4444;
+        --ok: #16a34a;
+        --panel: rgba(255, 255, 255, 0.88);
+        --line: rgba(7, 89, 133, 0.18);
+        --shadow: 0 24px 70px rgba(15, 41, 66, 0.18);
+        --agent-width: min(45vw, 620px);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        color: var(--text);
+        background: var(--bg);
+        font-family: Bahnschrift, "Aptos Narrow", "Segoe UI", Arial, sans-serif;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .map-canvas {
+        position: fixed;
+        inset: 0 var(--agent-width) 0 0;
+        overflow: hidden;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.5) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(255, 255, 255, 0.5) 1px, transparent 1px),
+          radial-gradient(circle at 28% 18%, rgba(56, 189, 248, 0.18), transparent 30%),
+          #e7eef2;
+        background-size: 52px 52px, 52px 52px, auto, auto;
+      }
+
+      .map-canvas::before {
+        position: absolute;
+        inset: -18% -12%;
+        background:
+          linear-gradient(32deg, transparent 0 29%, rgba(7, 89, 133, 0.34) 29.5% 31%, transparent 31.5% 100%),
+          linear-gradient(148deg, transparent 0 45%, rgba(14, 165, 233, 0.22) 45.5% 47%, transparent 47.5% 100%),
+          linear-gradient(84deg, transparent 0 58%, rgba(148, 163, 184, 0.34) 58.3% 59.1%, transparent 59.4% 100%),
+          linear-gradient(6deg, transparent 0 38%, rgba(148, 163, 184, 0.26) 38.2% 39%, transparent 39.2% 100%);
+        content: "";
+      }
+
+      .map-canvas.leaflet-ready::before,
+      .map-canvas.leaflet-ready::after {
+        display: none;
+      }
+
+      .leaflet-container {
+        width: 100%;
+        height: 100%;
+        background: #dfe9ee;
+        font-family: Bahnschrift, "Aptos Narrow", "Segoe UI", Arial, sans-serif;
+      }
+
+      .leaflet-control-attribution {
+        color: #64748b;
+        font-size: 10px;
+      }
+
+      .leaflet-control-zoom a {
+        color: var(--primary);
+      }
+
+      .demo-marker {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 2px solid white;
+        border-radius: 50%;
+        background: var(--primary);
+        box-shadow: 0 12px 28px rgba(15, 41, 66, 0.28);
+        color: white;
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .demo-popup strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--text);
+      }
+
+      .demo-popup span {
+        color: var(--muted);
+      }
+
+      .map-canvas::after {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 42% 58%, rgba(245, 158, 11, 0.22) 0 6%, transparent 6.5%),
+          radial-gradient(circle at 63% 38%, rgba(239, 68, 68, 0.16) 0 5%, transparent 5.5%),
+          radial-gradient(circle at 34% 70%, rgba(56, 189, 248, 0.26) 0 9%, transparent 9.5%),
+          linear-gradient(90deg, rgba(244, 248, 250, 0.15), rgba(244, 248, 250, 0.72));
+        content: "";
+      }
+
+      .app-bar {
+        position: fixed;
+        top: 18px;
+        left: 18px;
+        z-index: 4;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 248px;
+        padding: 10px 15px 10px 10px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: 0 16px 42px rgba(15, 41, 66, 0.14);
+        backdrop-filter: blur(18px);
+      }
+
+      .app-mark {
+        display: grid;
+        width: 40px;
+        height: 40px;
+        place-items: center;
+        border-radius: 12px;
+        background: linear-gradient(145deg, var(--primary), var(--secondary));
+        color: white;
+        font-size: 18px;
+        font-weight: 900;
+      }
+
+      .app-bar h1 {
+        margin: 0;
+        color: var(--text);
+        font-size: 18px;
+        line-height: 1.1;
+      }
+
+      .app-bar p {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .layer-rail {
+        position: fixed;
+        top: 96px;
+        left: 18px;
+        z-index: 4;
+        display: grid;
+        gap: 10px;
+        width: 218px;
+      }
+
+      .layer-button,
+      .chip,
+      .icon-button {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+        box-shadow: 0 14px 36px rgba(15, 41, 66, 0.12);
+        backdrop-filter: blur(14px);
+      }
+
+      .layer-button {
+        display: grid;
+        gap: 4px;
+        min-height: 62px;
+        padding: 12px;
+        border-radius: 14px;
+        text-align: left;
+      }
+
+      .layer-button span {
+        color: var(--primary);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .layer-button strong {
+        font-size: 14px;
+      }
+
+      .layer-button.active {
+        border-color: rgba(14, 165, 233, 0.55);
+        background: rgba(240, 249, 255, 0.94);
+      }
+
+      .legend-card {
+        position: fixed;
+        left: 18px;
+        bottom: 18px;
+        z-index: 4;
+        width: 252px;
+        padding: 15px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--panel);
+        box-shadow: 0 18px 52px rgba(15, 41, 66, 0.14);
+        backdrop-filter: blur(18px);
+      }
+
+      .legend-card h3 {
+        margin: 0 0 12px;
+        font-size: 14px;
+      }
+
+      .legend-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 8px 0;
+        color: #334155;
+        font-size: 13px;
+      }
+
+      .swatch {
+        width: 18px;
+        height: 18px;
+        border-radius: 6px;
+        border: 1px solid rgba(15, 41, 66, 0.16);
+      }
+
+      .high {
+        background: var(--high);
+      }
+
+      .medium {
+        background: var(--risk);
+      }
+
+      .low {
+        background: var(--highlight);
+      }
+
+      .legend-note {
+        margin: 12px 0 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .agent-panel {
+        position: fixed;
+        inset: 0 0 0 auto;
+        z-index: 5;
+        display: flex;
+        width: var(--agent-width);
+        min-width: 430px;
+        max-width: 680px;
+        flex-direction: column;
+        border-left: 1px solid var(--line);
+        background: rgba(244, 248, 250, 0.95);
+        box-shadow: -18px 0 56px rgba(15, 41, 66, 0.16);
+        backdrop-filter: blur(20px);
+      }
+
+      .conversation-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 104px;
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .tabs {
+        display: inline-flex;
+        gap: 8px;
+        padding: 6px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(226, 232, 240, 0.54);
+      }
+
+      .tab {
+        min-width: 130px;
+        min-height: 52px;
+        border: 0;
+        border-radius: 13px;
+        background: transparent;
+        color: #6b7890;
+        font-weight: 800;
+      }
+
+      .tab.active {
+        background: white;
+        color: #1e3355;
+        box-shadow: 0 10px 24px rgba(15, 41, 66, 0.12);
+      }
+
+      .icon-button {
+        display: grid;
+        width: 54px;
+        height: 54px;
+        place-items: center;
+        border-radius: 16px;
+        color: var(--primary);
+        font-size: 18px;
+        font-weight: 900;
+      }
+
+      .panel-scroll {
+        flex: 1;
+        overflow: auto;
+        padding: 22px 28px 120px;
+      }
+
+      .status-card,
+      .decision-card,
+      .message,
+      .report-panel {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.74);
+        box-shadow: 0 16px 40px rgba(15, 41, 66, 0.08);
+      }
+
+      .status-card {
+        padding: 18px 20px;
+        background: rgba(240, 253, 244, 0.68);
+        border-color: rgba(22, 163, 74, 0.22);
+      }
+
+      .status-head {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      .dot {
+        width: 22px;
+        height: 22px;
+        margin-top: 5px;
+        border-radius: 50%;
+        background: var(--ok);
+      }
+
+      .status-card h2,
+      .decision-card h2 {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.2;
+      }
+
+      .status-card small {
+        display: block;
+        margin-top: 4px;
+        color: #607089;
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .setup-list {
+        display: grid;
+        gap: 0;
+        margin-top: 18px;
+        border-top: 1px solid rgba(7, 89, 133, 0.13);
+      }
+
+      .setup-row {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 12px;
+        padding: 15px 0;
+        border-bottom: 1px solid rgba(7, 89, 133, 0.13);
+      }
+
+      .setup-row .badge {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border-radius: 50%;
+        background: rgba(219, 234, 254, 0.92);
+        color: #2563eb;
+        font-weight: 900;
+      }
+
+      .setup-row h3 {
+        margin: 0 0 5px;
+        font-size: 15px;
+      }
+
+      .setup-row p {
+        margin: 0;
+        color: #65758e;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .decision-card {
+        margin-top: 18px;
+        overflow: hidden;
+        background: rgba(239, 248, 252, 0.9);
+        border-color: rgba(7, 89, 133, 0.45);
+      }
+
+      .decision-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 22px 24px;
+      }
+
+      .kicker {
+        display: block;
+        margin-bottom: 8px;
+        color: #3c7896;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .failed {
+        min-width: 82px;
+        padding: 8px 14px;
+        border: 2px solid rgba(239, 68, 68, 0.28);
+        border-radius: 999px;
+        background: rgba(254, 242, 242, 0.9);
+        color: #c4362f;
+        text-align: center;
+        font-size: 13px;
+        font-weight: 900;
+      }
+
+      .decision-body {
+        padding: 0 24px 24px;
+      }
+
+      .decision-rationale {
+        margin: 0 0 20px;
+        color: #4b5870;
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 1.55;
+      }
+
+      .control-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        color: #4b5870;
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      select,
+      input[type="text"] {
+        min-height: 52px;
+        width: 100%;
+        border: 1px solid rgba(15, 41, 66, 0.22);
+        border-radius: 12px;
+        background: white;
+        color: #172033;
+        padding: 0 14px;
+        font-weight: 800;
+      }
+
+      .lens-title {
+        margin: 18px 0 10px;
+        color: #4b5870;
+        font-size: 14px;
+        font-weight: 900;
+      }
+
+      .lens-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+
+      .lens-row button {
+        min-height: 52px;
+        border: 1px solid rgba(15, 41, 66, 0.22);
+        border-radius: 12px;
+        background: white;
+        color: #344054;
+        font-weight: 900;
+      }
+
+      .lens-row .selected {
+        border-color: var(--primary);
+        background: rgba(207, 250, 254, 0.75);
+        color: #295b74;
+      }
+
+      .weights {
+        display: grid;
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .weight-line {
+        display: grid;
+        gap: 8px;
+      }
+
+      .weight-line div {
+        display: flex;
+        justify-content: space-between;
+      }
+
+      input[type="range"] {
+        width: 100%;
+        accent-color: #3c7896;
+      }
+
+      .decision-footer {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-top: 20px;
+        padding-top: 18px;
+        border-top: 1px solid rgba(7, 89, 133, 0.15);
+      }
+
+      .checkbox {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .confirm {
+        min-height: 58px;
+        margin-left: auto;
+        padding: 0 24px;
+        border: 0;
+        border-radius: 14px;
+        background: #234563;
+        color: white;
+        font-size: 16px;
+        font-weight: 900;
+      }
+
+      .progress-list {
+        display: grid;
+        gap: 13px;
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .progress-list li {
+        display: grid;
+        grid-template-columns: 26px 1fr auto;
+        gap: 10px;
+        align-items: center;
+        color: #64748b;
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .step-icon {
+        width: 20px;
+        height: 20px;
+        border: 2px solid #94a3b8;
+        border-radius: 50%;
+      }
+
+      .step-icon.done {
+        border-color: transparent;
+        background: var(--ok);
+      }
+
+      .step-icon.warn {
+        border-color: #f6c453;
+        background: #f8d16a;
+      }
+
+      .step-icon.fail {
+        border-color: #b93b36;
+        background: #d84a43;
+      }
+
+      .message {
+        margin-top: 18px;
+        padding: 18px 20px;
+        color: #243145;
+        font-size: 17px;
+        line-height: 1.5;
+      }
+
+      .message.user {
+        margin-left: 64px;
+        background: rgba(236, 254, 255, 0.86);
+        border-color: rgba(56, 189, 248, 0.35);
+      }
+
+      .message.agent {
+        margin-right: 42px;
+        background: rgba(239, 246, 255, 0.82);
+        border-color: rgba(14, 165, 233, 0.2);
+      }
+
+      .report-panel {
+        display: none;
+        margin-top: 18px;
+        padding: 20px;
+      }
+
+      .report-panel.active {
+        display: block;
+      }
+
+      .report-panel h2 {
+        margin: 0 0 12px;
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin: 14px 0;
+      }
+
+      .metric {
+        min-height: 94px;
+        padding: 14px;
+        border: 1px solid rgba(7, 89, 133, 0.16);
+        border-radius: 14px;
+        background: white;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 22px;
+      }
+
+      .rank-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .rank {
+        display: grid;
+        grid-template-columns: 34px 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 12px;
+        border-radius: 12px;
+        background: rgba(244, 248, 250, 0.9);
+      }
+
+      .rank-number {
+        display: grid;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--primary);
+        color: white;
+        font-weight: 900;
+      }
+
+      .bottom-compose {
+        position: fixed;
+        right: 28px;
+        bottom: 20px;
+        z-index: 6;
+        width: calc(var(--agent-width) - 56px);
+        min-width: 374px;
+      }
+
+      .chips {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+        overflow: auto;
+      }
+
+      .chip {
+        flex: 0 0 auto;
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .input-row {
+        display: grid;
+        grid-template-columns: 1fr 78px;
+        gap: 10px;
+      }
+
+      .send {
+        border: 0;
+        border-radius: 12px;
+        background: var(--primary);
+        color: white;
+        font-weight: 900;
+      }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 28px;
+        z-index: 7;
+        max-width: 420px;
+        padding: 12px 16px;
+        border: 1px solid rgba(7, 89, 133, 0.22);
+        border-radius: 999px;
+        background: white;
+        color: var(--primary);
+        box-shadow: var(--shadow);
+        font-size: 13px;
+        font-weight: 900;
+        opacity: 0;
+        transform: translate(-50%, 16px);
+        transition: opacity 180ms ease, transform 180ms ease;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      @media (max-width: 920px) {
+        :root {
+          --agent-width: 100vw;
+        }
+
+        .map-canvas,
+        .app-bar,
+        .layer-rail,
+        .legend-card {
+          display: none;
+        }
+
+        .agent-panel {
+          width: 100vw;
+          min-width: 0;
+        }
+
+        .control-grid,
+        .lens-row,
+        .metric-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .bottom-compose {
+          right: 16px;
+          bottom: 14px;
+          width: calc(100vw - 32px);
+          min-width: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="static-map" class="map-canvas" aria-label="Static Glasgow map preview"></main>
+
+    <header class="app-bar">
+      <div class="app-mark" aria-hidden="true">H</div>
+      <div>
+        <h1>HydroMind</h1>
+        <p>Glasgow flood intelligence</p>
+      </div>
+    </header>
+
+    <aside class="layer-rail" aria-label="Static map layers">
+      <button class="layer-button active" type="button" data-demo-action>
+        <span>Layer</span>
+        <strong>Latest Hazard</strong>
+      </button>
+      <button class="layer-button" type="button" data-demo-action>
+        <span>Decision Layer</span>
+        <strong>Priority by Data Zone</strong>
+      </button>
+      <button class="layer-button" type="button" data-demo-action>
+        <span>Evidence</span>
+        <strong>Rainfall Stations</strong>
+      </button>
+    </aside>
+
+    <aside class="legend-card" aria-label="Static hazard legend">
+      <h3>Latest calculated hazard - 5 m</h3>
+      <div class="legend-row"><span class="swatch high"></span>High - class 3</div>
+      <div class="legend-row"><span class="swatch medium"></span>Medium - class 2</div>
+      <div class="legend-row"><span class="swatch low"></span>Low - class 1</div>
+      <p class="legend-note">Static demo only. No operational warning or live service is connected.</p>
+    </aside>
+
+    <section class="agent-panel" aria-label="Static HydroMind demo panel">
+      <header class="conversation-header">
+        <nav class="tabs" aria-label="Demo views">
+          <button id="conversation-tab" class="tab active" type="button">Conversation</button>
+          <button id="report-tab" class="tab" type="button">Risk report</button>
+        </nav>
+        <button class="icon-button" type="button" title="Static demo" data-demo-action>›</button>
+      </header>
+
+      <div class="panel-scroll">
+        <section id="conversation-view">
+          <article class="status-card">
+            <div class="status-head">
+              <span class="dot" aria-hidden="true"></span>
+              <div>
+                <h2>System ready - static demo</h2>
+                <small>16 analysis rasters verified - mock model configured</small>
+              </div>
+            </div>
+            <div class="setup-list">
+              <div class="setup-row">
+                <span class="badge">✓</span>
+                <div>
+                  <h3>Analysis data</h3>
+                  <p>Glasgow 5 m input layout is represented with static mock metadata.</p>
+                </div>
+              </div>
+              <div class="setup-row">
+                <span class="badge">i</span>
+                <div>
+                  <h3>Local UKV historical forecast</h3>
+                  <p>Shown as configured for demonstration. No local files are read in this page.</p>
+                </div>
+              </div>
+              <div class="setup-row">
+                <span class="badge">i</span>
+                <div>
+                  <h3>ADMIRALTY tidal prediction</h3>
+                  <p>Optional coastal tide integration is displayed as a mock status item.</p>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="decision-card">
+            <header class="decision-header">
+              <div>
+                <span class="kicker">Human-in-the-loop checkpoint</span>
+                <h2>Decision settings</h2>
+              </div>
+              <span id="decision-badge" class="failed">Demo</span>
+            </header>
+            <div class="decision-body">
+              <p class="decision-rationale">
+                User asks for citywide flood risk over the next 24 hours, requiring an integrated
+                hazard-exposure-vulnerability assessment. This static version shows the workflow
+                without running any analysis.
+              </p>
+              <div class="control-grid">
+                <label>Scenario
+                  <select>
+                    <option>Future</option>
+                    <option>Current</option>
+                    <option>Historical</option>
+                  </select>
+                </label>
+                <label>Horizon
+                  <select>
+                    <option>24 hours</option>
+                    <option>12 hours</option>
+                    <option>48 hours</option>
+                  </select>
+                </label>
+                <label>Hazard gate
+                  <select>
+                    <option>Class >= 2</option>
+                    <option>Class >= 1</option>
+                    <option>Class >= 3</option>
+                  </select>
+                </label>
+              </div>
+
+              <p class="lens-title">Decision lens</p>
+              <div class="lens-row">
+                <button type="button" data-demo-action>Life safety</button>
+                <button class="selected" type="button" data-demo-action>Social equity</button>
+                <button type="button" data-demo-action>Economic</button>
+              </div>
+
+              <div class="weights">
+                <label class="weight-line">
+                  <div><span>Hazard</span><strong>25%</strong></div>
+                  <input type="range" min="0" max="100" value="25" />
+                </label>
+                <label class="weight-line">
+                  <div><span>Exposure</span><strong>25%</strong></div>
+                  <input type="range" min="0" max="100" value="25" />
+                </label>
+                <label class="weight-line">
+                  <div><span>Vulnerability</span><strong>50%</strong></div>
+                  <input type="range" min="0" max="100" value="50" />
+                </label>
+              </div>
+
+              <div class="decision-footer">
+                <label class="checkbox"><input type="checkbox" checked /> Include SIMD</label>
+                <strong>Total 100%</strong>
+                <button id="confirm-run" class="confirm" type="button">Confirm and run</button>
+              </div>
+
+              <ol class="progress-list">
+                <li><span class="step-icon done"></span><span>Data readiness</span><small>mock ready</small></li>
+                <li><span id="hazard-step" class="step-icon warn"></span><span>Multi-hazard analysis</span><small id="hazard-text">demo idle</small></li>
+                <li><span class="step-icon"></span><span>Exposure aggregation</span><small>pending</small></li>
+                <li><span class="step-icon"></span><span>Social vulnerability</span><small>pending</small></li>
+                <li><span class="step-icon"></span><span>Priority ranking</span><small>pending</small></li>
+                <li><span class="step-icon"></span><span>Publish decision layers</span><small>pending</small></li>
+              </ol>
+            </div>
+          </article>
+
+          <div class="message user">What is the flood risk across Glasgow for the next 24 hours?</div>
+          <div class="message agent">
+            This static demo would normally ask the Agent to run the deterministic workflow.
+            Here it shows a representative result without contacting any API.
+          </div>
+        </section>
+
+        <section id="report-view" class="report-panel">
+          <h2>Static Risk Report</h2>
+          <p>
+            Representative citywide flood-priority summary for presentation and embedding.
+            Values are mock figures for UI demonstration only.
+          </p>
+          <div class="metric-grid">
+            <div class="metric"><span>Exposed population</span><strong>119k</strong></div>
+            <div class="metric"><span>Buildings</span><strong>12.8k</strong></div>
+            <div class="metric"><span>Facilities</span><strong>49</strong></div>
+          </div>
+          <div class="rank-list">
+            <div class="rank"><span class="rank-number">1</span><strong>Singer and Clydebank South - 01</strong><span>0.61</span></div>
+            <div class="rank"><span class="rank-number">2</span><strong>Farme Cross and Gallowflat North - 04</strong><span>0.60</span></div>
+            <div class="rank"><span class="rank-number">3</span><strong>Yoker North - 03</strong><span>0.56</span></div>
+            <div class="rank"><span class="rank-number">4</span><strong>Scotstoun South and West - 06</strong><span>0.55</span></div>
+          </div>
+        </section>
+      </div>
+
+      <form class="bottom-compose" id="demo-form">
+        <div class="chips">
+          <button class="chip" type="button" data-demo-action>Current risk at G2 8JB</button>
+          <button class="chip" type="button" data-demo-action>Next 24 hours</button>
+          <button class="chip" type="button" data-demo-action>Compare routes</button>
+        </div>
+        <div class="input-row">
+          <input type="text" value="Show the current flood risk of G2 8JB" aria-label="Static prompt" />
+          <button class="send" type="submit">Send</button>
+        </div>
+      </form>
+    </section>
+
+    <div id="toast" class="toast">Static demo only - no backend request was sent.</div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script>
+      const conversationTab = document.getElementById("conversation-tab");
+      const reportTab = document.getElementById("report-tab");
+      const conversationView = document.getElementById("conversation-view");
+      const reportView = document.getElementById("report-view");
+      const toast = document.getElementById("toast");
+      const hazardStep = document.getElementById("hazard-step");
+      const hazardText = document.getElementById("hazard-text");
+      const decisionBadge = document.getElementById("decision-badge");
+
+      function initStaticMap() {
+        if (!window.L) {
+          showToast("Map library unavailable - showing fallback preview.");
+          return;
+        }
+
+        const mapElement = document.getElementById("static-map");
+        const map = L.map(mapElement, {
+          zoomControl: true,
+          attributionControl: true,
+          scrollWheelZoom: true,
+        }).setView([55.8642, -4.2518], 12);
+        mapElement.classList.add("leaflet-ready");
+
+        const carto = L.tileLayer(
+          "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+          {
+            maxZoom: 19,
+            attribution: "&copy; OpenStreetMap &copy; CARTO",
+          }
+        ).addTo(map);
+
+        carto.on("tileerror", () => {
+          showToast("Online basemap tile unavailable.");
+        });
+
+        const hazardLayer = L.layerGroup([
+          L.polygon(
+            [
+              [55.8668, -4.316],
+              [55.882, -4.285],
+              [55.872, -4.245],
+              [55.852, -4.258],
+              [55.848, -4.302],
+            ],
+            {
+              color: "#f59e0b",
+              weight: 2,
+              fillColor: "#f59e0b",
+              fillOpacity: 0.34,
+            }
+          ).bindPopup('<div class="demo-popup"><strong>Mock medium hazard</strong><span>Representative future pluvial hotspot.</span></div>'),
+          L.polygon(
+            [
+              [55.858, -4.238],
+              [55.873, -4.214],
+              [55.865, -4.186],
+              [55.846, -4.198],
+              [55.842, -4.226],
+            ],
+            {
+              color: "#ef4444",
+              weight: 2,
+              fillColor: "#ef4444",
+              fillOpacity: 0.28,
+            }
+          ).bindPopup('<div class="demo-popup"><strong>Mock high-priority area</strong><span>Static demonstration polygon.</span></div>'),
+          L.circle([55.872, -4.36], {
+            radius: 1600,
+            color: "#38bdf8",
+            weight: 2,
+            fillColor: "#38bdf8",
+            fillOpacity: 0.24,
+          }).bindPopup('<div class="demo-popup"><strong>Mock low hazard</strong><span>Illustrative static overlay.</span></div>'),
+        ]).addTo(map);
+
+        const priorityLayer = L.layerGroup([
+          L.marker([55.861, -4.252], {
+            icon: L.divIcon({
+              className: "",
+              html: '<span class="demo-marker">G2</span>',
+              iconSize: [34, 34],
+              iconAnchor: [17, 17],
+            }),
+          }).bindPopup('<div class="demo-popup"><strong>G2 8JB</strong><span>Static selected location.</span></div>'),
+          L.polyline(
+            [
+              [55.86, -4.29],
+              [55.864, -4.265],
+              [55.872, -4.251],
+              [55.875, -4.227],
+            ],
+            { color: "#075985", weight: 5, opacity: 0.76 }
+          ).bindPopup('<div class="demo-popup"><strong>Mock lower-risk route</strong><span>Route geometry is illustrative.</span></div>'),
+        ]).addTo(map);
+
+        L.control.layers(
+          { "CARTO Positron": carto },
+          {
+            "Mock hazard overlay": hazardLayer,
+            "Mock priority and route": priorityLayer,
+          },
+          { collapsed: false }
+        ).addTo(map);
+      }
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add("show");
+        window.clearTimeout(showToast.timer);
+        showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 1800);
+      }
+
+      function showConversation() {
+        conversationTab.classList.add("active");
+        reportTab.classList.remove("active");
+        conversationView.style.display = "block";
+        reportView.classList.remove("active");
+      }
+
+      function showReport() {
+        reportTab.classList.add("active");
+        conversationTab.classList.remove("active");
+        conversationView.style.display = "none";
+        reportView.classList.add("active");
+      }
+
+      conversationTab.addEventListener("click", showConversation);
+      reportTab.addEventListener("click", showReport);
+
+      document.querySelectorAll("[data-demo-action]").forEach((element) => {
+        element.addEventListener("click", () => {
+          showToast("Static demo only - this control is visual.");
+        });
+      });
+
+      document.getElementById("confirm-run").addEventListener("click", () => {
+        decisionBadge.textContent = "Running";
+        decisionBadge.style.color = "#075985";
+        decisionBadge.style.borderColor = "rgba(14, 165, 233, 0.35)";
+        decisionBadge.style.background = "rgba(240, 249, 255, 0.92)";
+        hazardStep.className = "step-icon warn";
+        hazardText.textContent = "mock running";
+        showToast("Mock workflow started.");
+        window.setTimeout(() => {
+          decisionBadge.textContent = "Complete";
+          decisionBadge.style.color = "#166534";
+          decisionBadge.style.borderColor = "rgba(22, 163, 74, 0.3)";
+          decisionBadge.style.background = "rgba(240, 253, 244, 0.92)";
+          hazardStep.className = "step-icon done";
+          hazardText.textContent = "mock complete";
+          showReport();
+        }, 900);
+      });
+
+      document.getElementById("demo-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        showToast("Static demo only - no Agent API call was made.");
+      });
+
+      initStaticMap();
+    </script>
+  </body>
+</html>

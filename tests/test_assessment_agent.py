@@ -9,7 +9,7 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
-from core_analyst.historical_validation import _forecast_reference_time
+from core_analyst.historical_validation import _forecast_from_directory, _forecast_reference_time
 from hydromind.agent import tool_names_for_intent
 from hydromind.assessment import create_assessment_plan, load_assessment_plan
 from hydromind.integrations.core_analysis import CoreAnalystAnalysisService
@@ -236,3 +236,14 @@ def test_historical_forecast_reference_time_is_auditable(tmp_path: Path) -> None
         dataset.update_tags(forecast_reference_time="2023-10-06T06:00:00Z")
 
     assert _forecast_reference_time(path) == datetime(2023, 10, 6, 6, tzinfo=UTC)
+
+
+def test_historical_forecast_directory_selects_issue_time_grib(tmp_path: Path) -> None:
+    archive = tmp_path / "ukv_202310"
+    archive.mkdir()
+    (archive / "202310060600_u1096_ng_umqv_Wholesale1.grib.part").write_bytes(b"incomplete")
+    expected = archive / "202310060600_u1096_ng_umqv_Wholesale1.grib"
+    expected.write_bytes(b"complete")
+    (archive / "202310061200_u1096_ng_umqv_Wholesale1.grib").write_bytes(b"later")
+
+    assert _forecast_from_directory(archive, datetime(2023, 10, 6, 6, tzinfo=UTC)) == expected

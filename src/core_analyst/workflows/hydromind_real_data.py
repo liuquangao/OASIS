@@ -19,6 +19,7 @@ from core_analyst.data_sources import (
     NRFAHistoricalRiverFlowSource,
     SEPARainfallAPISource,
 )
+from core_analyst.input_layout import nrfa_flow_source, nrfa_rainfall_source, raster_dir
 from core_analyst.study_area import load_glasgow_1km_buffer_bounds
 
 
@@ -61,7 +62,7 @@ def build_hydromind_input_sources(
 ):
     input_dir = Path(input_dir)
     gdb_path = input_dir / "HYDROMIND_raster.gdb" / "HYDROMIND_raster.gdb"
-    tif_dir = input_dir / "HYDROMIND_Rasters" / "HYDROMIND_Rasters"
+    tif_dir = raster_dir(input_dir)
 
     if gdb_path.exists():
         dem = AlignedRasterSource("dem", gdb_uri(gdb_path, GDB_LAYERS["dem"]), Resampling.bilinear, use_source_mask=True)
@@ -142,7 +143,7 @@ def build_reference_flood_sources(
 ):
     input_dir = Path(input_dir)
     gdb_path = input_dir / "HYDROMIND_raster.gdb" / "HYDROMIND_raster.gdb"
-    tif_dir = input_dir / "HYDROMIND_Rasters" / "HYDROMIND_Rasters"
+    tif_dir = raster_dir(input_dir)
     scenario_aliases = {
         "current": "high",
         "future": "low",
@@ -178,12 +179,11 @@ def build_historical_hydrological_sources(input_dir: str | Path = "Input"):
     """Return reusable historical dynamic sources when downloaded NRFA ZIPs exist."""
 
     input_dir = Path(input_dir)
-    csv_dir = input_dir / "CSV-20260825T012052Z-1-001" / "CSV"
     sources = {}
-    flow_zip = csv_dir / "Gauged_daily_flow.zip"
-    rainfall_zip = csv_dir / "Rainfall.zip"
-    if flow_zip.exists():
-        sources["nrfa_historical_river_flow"] = NRFAHistoricalRiverFlowSource(flow_zip)
-    if rainfall_zip.exists():
-        sources["nrfa_historical_rainfall"] = NRFAHistoricalRainfallSource(rainfall_zip)
+    flow = nrfa_flow_source(input_dir)
+    rainfall = nrfa_rainfall_source(input_dir)
+    if flow.exists():
+        sources["nrfa_historical_river_flow"] = NRFAHistoricalRiverFlowSource(flow)
+    if rainfall.exists():
+        sources["nrfa_historical_rainfall"] = NRFAHistoricalRainfallSource(rainfall)
     return sources

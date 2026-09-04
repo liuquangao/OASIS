@@ -311,6 +311,9 @@ def _resolve_forecast(
 ) -> tuple[Path, str, list[dict[str, Any]]]:
     if forecast_path:
         path = Path(forecast_path)
+        if path.is_dir():
+            resolved = _forecast_from_directory(path, issue_time)
+            return resolved, f"local UKV archive directory: {path}", []
         if not path.is_file():
             raise FileNotFoundError(f"Historical UKV file not found: {path}")
         return path, "local CEDA archive file", []
@@ -320,42 +323,63 @@ def _resolve_forecast(
             "Historical validation needs CEDA_ACCESS_TOKEN, CEDA_USERNAME/CEDA_PASSWORD, "
             "or HYDROMIND_HISTORICAL_UKV_PATH."
         )
-    stamp = issue_time.strftime("%Y%m%d%H%M")
-    filename = f"{stamp}_u1096_ng_umqv_Wholesale4.grib"
-    url = f"{CEDA_UKV_ROOT}/{issue_time:%Y/%m/%d}/{filename}"
-    target = output_dir / filename
     recovery: list[dict[str, Any]] = []
-    if target.is_file():
-        return target, url, [{"action": "reuse_cache", "outcome": "success"}]
-    for attempt in range(1, 3):
-        with httpx.Client(timeout=180, follow_redirects=True) as client:
-            with client.stream("GET", url, headers={"Authorization": f"Bearer {token}"}) as response:
-                if response.status_code == 200:
-                    temporary = target.with_suffix(target.suffix + ".part")
-                    with temporary.open("wb") as handle:
-                        for chunk in response.iter_bytes():
-                            handle.write(chunk)
-                    temporary.replace(target)
-                    return target, url, recovery
-                response.read()
-        recovery.append(
-            {
-                "action": "retry" if attempt == 1 else "stop",
-                "attempt": attempt,
-                "status_code": response.status_code,
-                "outcome": "failed",
-            }
-        )
-        if response.status_code == 429:
-            time.sleep(float(response.headers.get("Retry-After", "2")))
-        elif response.status_code >= 500 and attempt == 1:
-            time.sleep(2)
-        else:
-            break
+    stamp = issue_time.strftime("%Y%m%d%H%M")
+    filenames = [
+        f"{stamp}_u1096_ng_umqv_Wholesale1.grib",
+        f"{stamp}_u1096_ng_umqv_Wholesale2.grib",
+    ]
+    for filename in filenames:
+        url = f"{CEDA_UKV_ROOT}/{issue_time:%Y/%m/%d}/{filename}"
+        target = output_dir / filename
+        if target.is_file():
+            return target, url, [{"action": "reuse_cache", "outcome": "success", "filename": filename}]
+        for attempt in range(1, 3):
+            with httpx.Client(timeout=180, follow_redirects=True) as client:
+                with client.stream("GET", url, headers={"Authorization": f"Bearer {token}"}) as response:
+                    if response.status_code == 200:
+                        temporary = target.with_suffix(target.suffix + ".part")
+                        with temporary.open("wb") as handle:
+                            for chunk in response.iter_bytes():
+                                handle.write(chunk)
+                        temporary.replace(target)
+                        return target, url, recovery
+                    response.read()
+            recovery.append(
+                {
+                    "action": "retry" if attempt == 1 else "try_next_product",
+                    "attempt": attempt,
+                    "filename": filename,
+                    "status_code": response.status_code,
+                    "outcome": "failed",
+                }
+            )
+            if response.status_code == 429:
+                time.sleep(float(response.headers.get("Retry-After", "2")))
+            elif response.status_code >= 500 and attempt == 1:
+                time.sleep(2)
+            else:
+                break
     raise ValueError(
         f"CEDA UKV download failed with HTTP {recovery[-1]['status_code']}; "
-        "check archive permission or provide HYDROMIND_HISTORICAL_UKV_PATH."
+        "check archive permission or provide a rainfall-capable UKV GRIB "
+        "(Wholesale1 or Wholesale2) through HYDROMIND_HISTORICAL_UKV_PATH."
     )
+
+
+def _forecast_from_directory(directory: Path, issue_time: datetime) -> Path:
+    stamp = issue_time.strftime("%Y%m%d%H%M")
+    candidates = []
+    for wholesale in (1, 2):
+        candidate = directory / f"{stamp}_u1096_ng_umqv_Wholesale{wholesale}.grib"
+        if candidate.is_file():
+            candidates.append(candidate)
+    if not candidates:
+        raise FileNotFoundError(
+            f"Historical UKV directory does not contain a rainfall-capable "
+            f"Wholesale1/2 GRIB file for {stamp}: {directory}"
+        )
+    return candidates[0]
 
 
 def _ceda_token(credentials: CedaCredentials) -> str | None:

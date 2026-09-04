@@ -833,7 +833,7 @@ function renderSetupStatus(status) {
       body.appendChild(setupItem(
         "Complete Glasgow data",
         "missing",
-        "Set HYDROMIND_LCM2019_PATH to your licensed gb2019lcm25m.tif and HYDROMIND_ACCEPT_DATA_LICENCES=true, then restart the API. Anonymous official sources will be downloaded and processed automatically."
+        "Set HYDROMIND_CORE_ANALYST_INPUT_DIR to an existing prepared Input folder, or set HYDROMIND_LCM2019_PATH to your licensed gb2019lcm25m.tif with HYDROMIND_ACCEPT_DATA_LICENCES=true and restart the API."
       ));
     }
   }
