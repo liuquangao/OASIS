@@ -8,382 +8,306 @@ The design rule is simple: the language model interprets the user request and
 chooses tools; the flood calculations, raster processing, exposure analysis,
 and priority ranking remain deterministic and auditable.
 
-## What Can Run Without Deployment
+## Quick Start (Windows PowerShell)
 
-The repository supports three practical modes.
+Follow these steps to install the environment, prepare the data, and configure
+API access. The examples use `C:\OASIS`; replace this path if your repository
+is located elsewhere.
 
-| Mode | Needs Python API | Needs data/Input | Needs Docker/GeoServer | Needs model key | Purpose |
-| --- | --- | --- | --- | --- | --- |
-| Static demo | No | No | No | No | UI preview for GitHub Pages or embedding |
-| Local analysis | Yes | Yes | No | Yes | Agent, reports, GeoJSON outputs, no raster WMS overlay |
-| Full WebGIS | Yes | Yes | Optional | Yes | Full UI plus GeoServer WMS raster overlays |
+### 1. Set Up Git And Python, Then Clone The Repository
 
-The lowest-friction public demo is:
+Install Git and Python 3.12 or newer. Open PowerShell and check both tools:
+
+```powershell
+git --version
+python --version
+```
+
+Clone the branch used by this guide and install the project dependencies:
+
+```powershell
+git clone --branch github-ready-demo-and-runtime https://github.com/liuquangao/OASIS.git C:\OASIS
+cd C:\OASIS
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]" -c constraints.txt
+```
+
+If you have already cloned this branch, enter your existing repository folder
+and start with the Python environment setup.
+
+### 2. Download The Data And Extract It Into The Repository Root
+
+Obtain `data.zip` through the channel provided by the project maintainer and
+save it locally. This repository does not currently include a public download
+link for the archive.
+
+The archive already contains a `data/` folder. Extract it into the
+**repository root, `C:\OASIS`**, which contains `README.md`.
+Replace the archive path below with its actual location:
+
+```powershell
+cd C:\OASIS
+Expand-Archive -LiteralPath "C:\path\to\data.zip" -DestinationPath .
+```
+
+Alternatively, select **Extract All** in File Explorer and set the destination
+to `C:\OASIS`. If files already exist, compare them before replacing them;
+the repository includes a few data metadata files.
+
+The extracted directory structure should be:
 
 ```text
-webgis/frontend/demo-static.html
+C:\OASIS\
+├─ README.md
+├─ .env.example
+└─ data\
+   ├─ Input\
+   │  ├─ OASIS_Rasters\
+   │  ├─ OASIS_Polygon\
+   │  ├─ DataZone\
+   │  ├─ OASIS_CSV\
+   │  └─ processed\
+   └─ gb2019lcm25m.tif
 ```
 
-It is a standalone static page with an online CARTO basemap and mock flood
-overlays. It does not call the HydroMind API, GeoServer, Docker, or any model.
+The application reads `data/Input` by default. Avoid an extra folder level such
+as `data/data/Input`, and extract the ZIP instead of placing the archive itself
+in the input directory. Prepared input data does not need to be rebuilt.
 
-## Current Data Logic
+### 3. Choose A Model: Hosted API Or Local vLLM
 
-The default analysis input directory is:
+Choose one of the two options below: use your own hosted model API credentials,
+or run a model locally with vLLM. The Agent requires a model that supports
+tool calling.
 
-```text
-data/Input
+Create a local configuration file in the repository root. If `.env` already
+exists, edit it while preserving your existing settings:
+
+```powershell
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env
 ```
 
-The code accepts both the original `HYDROMIND_*` layout and the current
-`OASIS_*` layout. For example:
+Replace the existing `HYDROMIND_MODEL=test` entry and keep only one active
+model configuration. Both options use `HYDROMIND_CORE_ANALYST_INPUT_DIR=data/Input`.
 
-```text
-data/Input/OASIS_Rasters/OASIS_Rasters
-data/Input/OASIS_Polygon/OASIS_Polygon
-data/Input/DataZone/csv2022
-data/Input/DataZone/shapefile2011
-data/Input/DataZone/Geojson2022
-data/Input/OASIS_CSV/CSV
-data/Input/processed
+#### Option A: Use Your Own Hosted Model API
+
+Configure your provider's model identifier and your own API key. For example,
+to use OpenAI:
+
+```dotenv
+HYDROMIND_MODEL_PROVIDER=auto
+HYDROMIND_MODEL=openai:gpt-5-mini
+OPENAI_API_KEY=your_openai_api_key_here
+HYDROMIND_CORE_ANALYST_INPUT_DIR=data/Input
 ```
 
-`hydromind data verify` checks the 16 required Glasgow 5 m rasters. A valid
-local analysis setup reports:
+The model name is an example; select a tool-capable model available to your
+account. Other providers require their PydanticAI model identifier and
+provider-specific credentials.
 
-```json
-{"ok": true}
-```
-
-`gb2019lcm25m.tif` is only the licensed UKCEH source material used when
-rebuilding the full input directory. If `data/Input` is already prepared and
-verified, the normal runtime does not need to read `gb2019lcm25m.tif`.
-
-## API And Sensitive Configuration
-
-Never commit `.env`, API keys, downloaded licensed data, raw GRIB files, or
-generated analysis outputs.
-
-Required for a real Agent run:
+For MiMo, use this configuration instead. Set `MIMO_BASE_URL` to the endpoint
+shown for your API key in the provider console; the URL below is a Token Plan
+example:
 
 ```dotenv
 HYDROMIND_MODEL_PROVIDER=mimo
 HYDROMIND_MODEL=mimo-v2.5-pro
-MIMO_API_KEY=your_mimo_key
+MIMO_API_KEY=your_mimo_api_key_here
 MIMO_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+HYDROMIND_CORE_ANALYST_INPUT_DIR=data/Input
 ```
 
-Alternative hosted OpenAI-compatible mode:
+#### Option B: Run A Model Locally With vLLM
 
-```dotenv
-HYDROMIND_MODEL=openai:gpt-5-mini
-OPENAI_API_KEY=your_openai_key
-```
-
-Optional local vLLM mode:
+Start your vLLM server separately, then connect HydroMind to its
+OpenAI-compatible endpoint. Editing `.env` does not install or start vLLM.
+Use port `8001` for vLLM; port `8000` is reserved for the HydroMind API.
 
 ```dotenv
 HYDROMIND_MODEL_PROVIDER=vllm
 HYDROMIND_MODEL=qwen3.8-27b
 OPENAI_BASE_URL=http://127.0.0.1:8001/v1
 OPENAI_API_KEY=placeholder
-```
-
-Analysis and WebGIS paths:
-
-```dotenv
-HYDROMIND_CORE_ANALYST_INPUT_DIR=data/Input
-HYDROMIND_CORE_ANALYST_ANALYSIS_OUTPUT_DIR=analysis/core-analyst/outputs/agent
-HYDROMIND_CORE_ANALYST_CONFIG_DIR=analysis/core-analyst/config
-HYDROMIND_CORE_ANALYST_CONFIG_PATH=analysis/core-analyst/config/pluvial_prediction_config.yaml
-```
-
-Optional live or historical integrations:
-
-```dotenv
-METOFFICE_SITE_API_KEY=your_metoffice_key
-ADMIRALTY_API_KEY=your_admiralty_key
-HYDROMIND_HISTORICAL_UKV_PATH=/absolute/path/to/ukv_202310
-CEDA_ACCESS_TOKEN=your_ceda_token
-CEDA_USERNAME=your_ceda_username
-CEDA_PASSWORD=your_ceda_password
-```
-
-How these are used:
-
-- `METOFFICE_SITE_API_KEY`: live future pluvial rainfall forecast.
-- `ADMIRALTY_API_KEY`: optional live tide prediction for coastal evidence.
-- `HYDROMIND_HISTORICAL_UKV_PATH`: preferred local UKV GRIB file or directory
-  for the October 2023 hindcast.
-- `CEDA_*`: fallback only if the UKV archive must be fetched at runtime.
-- SEPA rainfall and water-level calls use public endpoints and do not require a
-  key.
-- Nominatim and OSRM are public default services for geocoding and routes.
-- CARTO basemap keys are stored in `webgis/frontend/config.local.js`, which is
-  ignored by Git.
-
-## Install
-
-Use Python 3.12 or newer. On Windows, a short path such as `C:\hydromind` is
-recommended because generated geospatial paths can be long.
-
-Windows PowerShell:
-
-```powershell
-git clone https://github.com/liuquangao/OASIS.git C:\hydromind
-cd C:\hydromind
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]" -c constraints.txt
-copy .env.example .env
-```
-
-macOS or Linux:
-
-```bash
-git clone https://github.com/liuquangao/OASIS.git
-cd OASIS
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]" -c constraints.txt
-cp .env.example .env
-```
-
-The `-c constraints.txt` flag is intentional. It pins the package versions that
-were tested for this project.
-
-## Run The Static Demo
-
-This is the easiest GitHub-friendly demonstration. It needs only a browser and
-internet access for the online basemap.
-
-Open directly:
-
-```text
-webgis/frontend/demo-static.html
-```
-
-Or serve the folder:
-
-```powershell
-python -m http.server 3000 --directory webgis/frontend
-```
-
-Then open:
-
-```text
-http://127.0.0.1:3000/demo-static.html
-```
-
-To embed it inside another HTML file:
-
-```html
-<iframe src="webgis/frontend/demo-static.html" style="width:100%;height:100vh;border:0"></iframe>
-```
-
-## Run Local Analysis Without Docker
-
-This mode uses the real Python backend and deterministic analysis workflows, but
-skips GeoServer raster publication.
-
-Edit `.env` and set at least:
-
-```dotenv
-HYDROMIND_MODEL_PROVIDER=mimo
-HYDROMIND_MODEL=mimo-v2.5-pro
-MIMO_API_KEY=your_mimo_key
-MIMO_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
 HYDROMIND_CORE_ANALYST_INPUT_DIR=data/Input
 ```
 
-Verify data:
+Set `HYDROMIND_MODEL` to the exact model name served by your vLLM instance.
+For a server without authentication, the client still requires a non-empty
+placeholder key; otherwise, use the server's configured API key.
+The repository's tested Qwen profile uses the `qwen3` reasoning parser and
+the `qwen3_coder` tool-call parser. Enable tool calling when serving the model.
+
+Check that the server is reachable before running the Agent:
 
 ```powershell
-hydromind data verify
+Invoke-RestMethod http://127.0.0.1:8001/v1/models -Headers @{ Authorization = "Bearer placeholder" }
 ```
 
-Run command-line analyses:
+Replace `placeholder` in this check if your server requires authentication.
+
+### 4. Configure Data APIs For The Features You Need
+
+Model credentials do not provide access to weather or tidal data. Add the
+settings required by your planned analysis to the same `.env` file:
+
+| Feature | Required setting | When to configure it |
+| --- | --- | --- |
+| Analysis using the prepared local inputs | No additional data API key | The extracted `data/Input` directory supplies these inputs. |
+| Live future rainfall forecasts | `METOFFICE_SITE_API_KEY` | Before running analyses that request Met Office rainfall forecasts. |
+| Live coastal tidal predictions | `ADMIRALTY_API_KEY` | Before requesting ADMIRALTY tidal predictions. |
+| Historical UKV analysis using local GRIB data | `HYDROMIND_HISTORICAL_UKV_PATH` | Point to your local rainfall GRIB file or directory. |
+| Historical UKV downloads from CEDA | `CEDA_ACCESS_TOKEN` or `CEDA_USERNAME` and `CEDA_PASSWORD` | Only when the historical archive must be fetched online. |
+| SEPA rainfall and water-level observations | No API key | Uses public endpoints; internet access is required. |
+| Nominatim geocoding and OSRM routing | No API key for the default endpoints | Uses public services; internet access is required. |
+
+Uncomment and fill only the entries needed for your workflow. Leave unused
+credentials commented out instead of setting placeholder keys:
+
+```dotenv
+# Live future rainfall forecasts
+# METOFFICE_SITE_API_KEY=your_metoffice_site_specific_key
+
+# Live coastal tidal predictions
+# ADMIRALTY_API_KEY=your_admiralty_tidal_api_key
+
+# Historical analysis: prefer a local rainfall GRIB file or directory
+# HYDROMIND_HISTORICAL_UKV_PATH=C:/path/to/ukv_202310
+
+# Online historical data access, only if needed
+# CEDA_ACCESS_TOKEN=your_ceda_access_token
+# CEDA_USERNAME=your_ceda_username
+# CEDA_PASSWORD=your_ceda_password
+```
+
+You can skip these credentials when using only prepared local data and public
+observation services. Forecast features that need them require separate setup.
+
+For a CARTO basemap key, create `webgis/frontend/config.local.js` from
+`config.local.example.js` in the same folder and set your key:
+
+```javascript
+window.HYDROMIND_CONFIG = {
+  cartoBasemapKey: "your_carto_basemap_key"
+};
+```
+
+This local frontend configuration is ignored by Git.
+
+### 5. Verify The Configuration And Data, Then Run
+
+Save `.env` and close Notepad. Keep `.env`, API keys, extracted inputs, and
+licensed source data local; do not commit them to GitHub.
+
+From the repository root, check the configuration and verify the data:
 
 ```powershell
-hydromind agent "Assess the available flood evidence for Glasgow"
-hydromind all-hazards --forecast-horizon-hours 24 --no-publish
-hydromind priority-assessment --scenario future --forecast-horizon-hours 24 --no-publish
+.\.venv\Scripts\hydromind.exe doctor
+.\.venv\Scripts\hydromind.exe data verify
 ```
 
-Outputs are written under:
-
-```text
-analysis/core-analyst/outputs
-```
-
-## Run The Full WebGIS
-
-Start GeoServer and PostGIS only if you want WMS raster overlays on the map:
+Review the configuration checks and confirm that data verification reports
+`"ok": true`. These checks do not establish that every external API credential
+works; the relevant service is exercised when its feature is used.
+Then run an Agent analysis:
 
 ```powershell
+.\.venv\Scripts\hydromind.exe agent "Assess the available flood evidence for Glasgow"
+```
+
+This command runs one analysis in the terminal. Continue below to launch the
+web interface and its supporting services.
+
+### 6. Start The Full WebGIS
+
+Complete the configuration and data checks above first. The full setup runs
+PostGIS and GeoServer in Docker, the HydroMind API on port `8000`, and the
+frontend on port `3000`. If you selected local vLLM, keep its model server
+running on port `8001` as well.
+
+#### Start PostGIS And GeoServer
+
+Install and start Docker Desktop with Linux containers enabled. In PowerShell,
+enter your repository root and start the containers:
+
+```powershell
+cd C:\OASIS
 docker compose -f webgis/docker-compose.yml up -d postgis geoserver
+docker compose -f webgis/docker-compose.yml ps
 ```
 
-Start the HydroMind API:
+The first run downloads the container images and may take several minutes.
+Wait for GeoServer to respond at <http://127.0.0.1:8080/geoserver/>. Container
+startup alone does not confirm that GeoServer is ready. To inspect startup:
 
 ```powershell
-.venv\Scripts\python.exe -m uvicorn hydromind.api:app --host 127.0.0.1 --port 8000
+docker compose -f webgis/docker-compose.yml logs --tail 50 geoserver
 ```
 
-In another terminal, start the frontend:
+These containers provide storage and WMS raster overlays and are required for the full deployment described here.
+
+#### Start The Backend In Terminal 1
 
 ```powershell
-python -m http.server 3000 --directory webgis/frontend
+cd C:\OASIS
+.\.venv\Scripts\python.exe -m uvicorn hydromind.api:app --host 127.0.0.1 --port 8000
 ```
 
-Open:
+Keep this terminal open. Wait for the application startup message before
+continuing.
 
-```text
-http://127.0.0.1:3000
-```
+#### Start The Frontend In Terminal 2
 
-Default ports:
-
-| Service | Port |
-| --- | ---: |
-| HydroMind API | 8000 |
-| Frontend static server | 3000 |
-| GeoServer | 8080 |
-| PostGIS | 5432 |
-| Optional local vLLM | 8001 |
-
-If port 8000 is already used:
+Open a second PowerShell terminal:
 
 ```powershell
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
+cd C:\OASIS
+.\.venv\Scripts\python.exe -m http.server 3000 --bind 127.0.0.1 --directory webgis/frontend
 ```
 
-## Rebuild Data From Licensed Sources
+Keep this terminal open, then visit <http://127.0.0.1:3000> in your browser.
+Use the main page for the live application; `demo-static.html` uses mock data.
 
-If `data/Input` is missing, rebuild it from source. The UKCEH LCM 2019 file is
-licence-gated and must be downloaded by the user from the official UKCEH EIDC
-order page. Do not commit or redistribute it.
+#### Check The Services
+
+In another PowerShell terminal, check the backend:
 
 ```powershell
-hydromind data preflight --lcm2019 D:\path\to\gb2019lcm25m.tif --accept-licences
-hydromind data rebuild --lcm2019 D:\path\to\gb2019lcm25m.tif --accept-licences
-hydromind data verify
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod http://127.0.0.1:8000/setup/status
 ```
 
-The rebuild process downloads public supporting inputs, prepares the Glasgow 5 m
-workflow, and writes generated files into the ignored input directory.
+Review the reported configuration and data readiness, then submit an analysis
+request in the web interface to exercise the model and the selected data APIs.
+WMS analysis overlays require generated results to be published to GeoServer;
+starting the services does not generate those results automatically.
 
-## Historical UKV Hindcast
-
-For the October 2023 historical validation, prefer a local UKV archive:
-
-```dotenv
-HYDROMIND_HISTORICAL_UKV_PATH=D:\path\to\ukv_202310
-```
-
-If the path is a directory, HydroMind selects the GRIB matching the issue time,
-for example:
-
-```text
-202310060600_*.grib
-```
-
-The GRIB must contain precipitation or rainfall bands. A file containing only
-wind gust (`GUST`) bands is not a valid rainfall forecast input.
-
-Run:
+To stop the frontend and backend, press `Ctrl+C` in their respective terminals.
+To stop this project's containers while retaining their data:
 
 ```powershell
-hydromind historical-validation --issue-time 2023-10-06T06:00:00Z --forecast-horizon-hours 24 --no-publish
-```
-
-## What Should Not Be Uploaded To GitHub
-
-The following are local-only and should stay ignored:
-
-```text
-.env
-.venv/
-data/Input/
-data/gb2019lcm25m.tif
-data/ukv_202310/
-data/**/*.grib
-data/**/*.part
-analysis/core-analyst/outputs/
-analysis/core-analyst/.hydromind-data-cache/
-webgis/frontend/config.local.js
-webgis/.runtime/
-```
-
-Small source-lock and geometry metadata files under `data/` may remain tracked
-if they are part of reproducible setup, for example:
-
-```text
-data/glasgow-5m-sources.json
-data/glasgow-city-1km-buffer.geojson
-data/glasgow-dtm-edge-patch.csv
+cd C:\OASIS
+docker compose -f webgis/docker-compose.yml stop
 ```
 
 ## Troubleshooting
 
-Check configuration:
+| Problem | What to check |
+| --- | --- |
+| `docker` is unavailable or cannot connect | Install and start Docker Desktop, then reopen PowerShell. |
+| A service port is already in use | Use `Get-NetTCPConnection -State Listen` to identify the process before changing ports or stopping it. |
+| The Agent cannot connect to its model | Check the provider, model, key, and Base URL in `.env`. For vLLM, confirm the model server is running on port `8001`. |
+| Data verification fails | Confirm the archive was extracted to `data/Input`, then review the file errors reported by `data verify`. |
+| Raster overlays are missing | Check GeoServer startup logs and confirm analysis results have been published. |
+| The browser shows an old error | Restart the backend after configuration changes and refresh the browser with `Ctrl+F5`. |
+| GeoServer upload returns `502` | Check that local service requests are not routed through a system proxy. |
 
-```powershell
-hydromind doctor
-```
+## Further Documentation
 
-Check the API:
+- [Data preparation and historical analysis](docs/data-workflows.md): input layout, rebuilding the Glasgow 5 m dataset, and historical UKV runs.
+- [Development reference](docs/development.md): tests, project layout, and files that must remain local.
 
-```powershell
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:8000/setup/status
-```
-
-Check Docker services:
-
-```powershell
-docker compose -f webgis/docker-compose.yml ps
-docker logs glasgow-geoserver --tail 100
-```
-
-If the browser still shows an old error after code changes, restart the API
-process and hard-refresh the browser with `Ctrl+F5`.
-
-If GeoServer upload returns `502`, check that local HTTP requests are not being
-sent through a system proxy. The GeoServer publisher disables environment proxy
-settings for local REST calls.
-
-## Tests
-
-Run focused tests while developing, then the suite:
-
-```powershell
-$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD="1"
-.venv\Scripts\pytest.exe -p pytest_asyncio.plugin
-```
-
-On macOS or Linux:
-
-```bash
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -p pytest_asyncio.plugin
-```
-
-## Project Layout
-
-```text
-src/hydromind/      Agent, API, settings, toolsets, models, integrations
-src/core_analyst/   Deterministic hazard, exposure, vulnerability workflows
-webgis/frontend/    Leaflet UI and static demo
-webgis/             Optional GeoServer and PostGIS configuration
-data/               Small source metadata plus ignored local input data
-analysis/           Generated outputs and caches
-tests/              Automated tests
-```
-
-## Scientific And Safety Notes
-
-HydroMind outputs are research and planning evidence for human review. They are
-not operational flood warnings, emergency instructions, or official forecasts.
-Preserve provenance, timestamps, uncertainty, and the selected decision weights
-when reporting results.
+HydroMind outputs are research and planning evidence for human review, not
+operational flood warnings or official forecasts. Keep `.env`, API keys,
+licensed inputs, and generated outputs out of Git.
